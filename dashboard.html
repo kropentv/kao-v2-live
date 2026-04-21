@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kao V2 — Live Command Center</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--gold:#D4A437;--gold-bright:#F5C842;--gold-dark:#8B6914;--gold-shadow:#4A3708;--black:#050505;--obsidian:#0E0E10;--ink:#16161A;--smoke:#2A2A32;--bone:#EDE7D9;--bone-dim:#A8A49A;--rust:#E04835;--rust-deep:#8B2416;--jade:#5BA872;--jade-deep:#2C5239;--amber:#FFB020}
+  body{background:var(--black);color:var(--bone);font-family:'JetBrains Mono',monospace;padding:16px;position:relative;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 15% 15%,rgba(212,164,55,.06),transparent 40%),radial-gradient(ellipse at 85% 85%,rgba(224,72,53,.04),transparent 40%);pointer-events:none;z-index:0}
+  .wrap{max-width:1400px;margin:0 auto;position:relative;z-index:1}
+  .config-bar{background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--gold-shadow);padding:12px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-radius:2px}
+  .config-bar label{font-size:9px;letter-spacing:2px;color:var(--gold);text-transform:uppercase}
+  .config-bar input{background:var(--black);border:1px solid var(--smoke);color:var(--gold-bright);padding:6px 10px;font-family:inherit;font-size:11px;border-radius:2px;min-width:280px}
+  .config-bar button{background:var(--gold);color:var(--black);border:none;padding:7px 14px;font-family:inherit;font-size:10px;font-weight:700;letter-spacing:1px;cursor:pointer;border-radius:2px;text-transform:uppercase}
+  .status{margin-left:auto;font-size:10px;color:var(--bone-dim)}
+  .status.ok{color:var(--jade)}.status.err{color:var(--rust)}
+  .header{display:grid;grid-template-columns:auto 1fr auto;gap:24px;align-items:center;padding:20px 24px;background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--gold-shadow);border-radius:2px;margin-bottom:16px}
+  .brand{display:flex;align-items:center;gap:16px}
+  .brand-mark{width:52px;height:52px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:26px;font-weight:900;color:var(--black);font-style:italic;clip-path:polygon(15% 0,100% 0,85% 100%,0 100%)}
+  .brand h1{font-family:'Fraunces',serif;font-size:26px;font-weight:400;line-height:1}
+  .brand h1 em{font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .brand .subtitle{font-size:9px;letter-spacing:4px;color:var(--gold);text-transform:uppercase;margin-top:4px}
+  .live{display:flex;align-items:center;gap:10px;padding:8px 16px;background:rgba(91,168,114,.08);border:1px solid var(--jade-deep);border-radius:2px}
+  .live-dot{width:6px;height:6px;background:var(--jade);border-radius:50%;box-shadow:0 0 12px var(--jade);animation:pulse 2s ease infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
+  .live-text{font-size:10px;letter-spacing:2px;color:var(--jade)}
+  .ticker{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px}
+  .tick{background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);padding:12px 14px;border-radius:2px}
+  .tick.gold{border-color:var(--gold);background:linear-gradient(135deg,rgba(212,164,55,.1),var(--ink))}
+  .tick-head{display:flex;justify-content:space-between;margin-bottom:6px}
+  .tick-sym{font-size:10px;letter-spacing:2px;color:var(--gold);font-weight:700}
+  .tick-change{font-size:10px;font-weight:700}
+  .tick-change.up{color:var(--jade)}.tick-change.down{color:var(--rust)}
+  .tick-price{font-family:'Fraunces',serif;font-size:22px;font-weight:700;font-style:italic;letter-spacing:-1px;line-height:1}
+  .tick-context{font-size:9px;color:var(--bone-dim);margin-top:4px}
+  .main-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:16px}
+  @media (max-width:1000px){.main-grid{grid-template-columns:1fr}.ticker{grid-template-columns:repeat(2,1fr)}}
+  .panel{background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);padding:18px 20px;border-radius:2px}
+  .panel-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;padding-bottom:12px;border-bottom:1px dashed var(--smoke)}
+  .panel-title{font-family:'Fraunces',serif;font-size:14px;font-weight:700;font-style:italic;color:var(--gold-bright)}
+  .panel-title::before{content:'◆ ';color:var(--gold)}
+  .panel-sub{font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase}
+  
+  /* TRADES SECTION */
+  .trades-panel{background:linear-gradient(135deg,rgba(212,164,55,.04),var(--ink));border:1px solid var(--gold-dark);padding:20px 24px;border-radius:2px;margin-bottom:16px;position:relative;overflow:hidden}
+  .trades-panel::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gold-bright),transparent)}
+  .trades-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;padding-bottom:12px;border-bottom:1px dashed var(--gold-shadow)}
+  .trades-title{font-family:'Fraunces',serif;font-size:18px;font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .trade-stats{display:flex;gap:20px;font-size:11px}
+  .trade-stat{display:flex;flex-direction:column}
+  .trade-stat-label{font-size:8px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase}
+  .trade-stat-val{font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--gold-bright)}
+  .trade-stat-val.positive{color:var(--jade)}
+  .trade-stat-val.negative{color:var(--rust)}
+  .trades-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:800px){.trades-grid{grid-template-columns:1fr}}
+  .trade-card{background:var(--obsidian);border:1px solid var(--smoke);border-left:4px solid var(--gold-dark);padding:14px 16px;border-radius:2px;position:relative}
+  .trade-card.good{border-left-color:var(--jade)}
+  .trade-card.acceptable{border-left-color:var(--amber)}
+  .trade-card.caution{border-left-color:var(--rust)}
+  .trade-card.bad{border-left-color:var(--rust);background:linear-gradient(90deg,rgba(224,72,53,.08),var(--obsidian))}
+  .trade-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+  .trade-direction{display:inline-block;padding:4px 10px;font-size:11px;font-weight:700;letter-spacing:2px;border-radius:2px}
+  .trade-direction.BUY{background:rgba(91,168,114,.15);color:var(--jade);border:1px solid var(--jade-deep)}
+  .trade-direction.SELL{background:rgba(224,72,53,.15);color:var(--rust);border:1px solid var(--rust-deep)}
+  .trade-verdict{padding:4px 10px;font-size:10px;font-weight:700;letter-spacing:1.5px;border-radius:2px}
+  .trade-verdict.GOOD{background:var(--jade);color:white}
+  .trade-verdict.ACCEPTABLE{background:var(--amber);color:var(--black)}
+  .trade-verdict.CAUTION{background:var(--rust);color:white}
+  .trade-verdict.BAD{background:var(--rust);color:white;animation:pulse 1.5s infinite}
+  .trade-symbol{font-family:'Fraunces',serif;font-size:18px;font-weight:700;font-style:italic;color:var(--bone);margin:6px 0}
+  .trade-details{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;padding:10px;background:var(--black);border-radius:2px}
+  .td-item{}
+  .td-label{font-size:8px;color:var(--bone-dim);letter-spacing:1px;text-transform:uppercase}
+  .td-value{font-family:'Fraunces',serif;font-size:14px;font-weight:700;color:var(--gold-bright);margin-top:2px}
+  .score-bar{height:4px;background:var(--smoke);border-radius:2px;margin:10px 0;overflow:hidden;position:relative}
+  .score-fill{height:100%;transition:width .5s}
+  .score-fill.good{background:linear-gradient(90deg,var(--jade-deep),var(--jade))}
+  .score-fill.acceptable{background:linear-gradient(90deg,var(--amber),var(--gold))}
+  .score-fill.caution{background:linear-gradient(90deg,var(--amber),var(--rust))}
+  .score-fill.bad{background:linear-gradient(90deg,var(--rust-deep),var(--rust))}
+  .trade-opinion{padding:10px;background:rgba(212,164,55,.04);border-left:2px solid var(--gold);font-size:10px;color:var(--bone);margin-top:8px;line-height:1.5}
+  .trade-opinion strong{color:var(--gold-bright);font-size:9px;letter-spacing:2px;display:block;margin-bottom:4px;text-transform:uppercase}
+  .points-list{list-style:none;margin:6px 0}
+  .points-list li{padding:3px 0;font-size:10px;line-height:1.4}
+  .closed-trades-list{display:flex;flex-direction:column;gap:6px;margin-top:14px;max-height:200px;overflow-y:auto}
+  .closed-trade{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:8px 12px;background:var(--obsidian);border-radius:2px;align-items:center;font-size:11px}
+  .closed-pl{font-family:'Fraunces',serif;font-size:14px;font-weight:700}
+  .closed-pl.positive{color:var(--jade)}
+  .closed-pl.negative{color:var(--rust)}
+  .empty-trades{text-align:center;padding:30px;color:var(--bone-dim);font-size:11px;letter-spacing:2px;border:1px dashed var(--smoke);border-radius:2px}
+  
+  /* NEWS */
+  .news-filters{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+  .filter{padding:6px 12px;background:var(--black);border:1px solid var(--smoke);color:var(--bone-dim);font-size:9px;letter-spacing:1.5px;cursor:pointer;border-radius:2px;text-transform:uppercase;font-family:inherit}
+  .filter.active{background:linear-gradient(90deg,var(--gold-dark),var(--gold));color:var(--black);border-color:var(--gold);font-weight:700}
+  .news-list,.trump-feed{max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:10px;padding-right:4px}
+  .news-list::-webkit-scrollbar,.trump-feed::-webkit-scrollbar{width:3px}
+  .news-list::-webkit-scrollbar-thumb,.trump-feed::-webkit-scrollbar-thumb{background:var(--gold-dark)}
+  .news-card{padding:14px 16px;background:var(--obsidian);border-left:3px solid var(--smoke);border-radius:2px;cursor:pointer;transition:all .25s}
+  .news-card:hover{background:var(--ink);transform:translateX(3px)}
+  .news-card.high{border-left-color:var(--rust);background:linear-gradient(90deg,rgba(224,72,53,.05),var(--obsidian))}
+  .news-card.medium{border-left-color:var(--amber)}
+  .news-card.low{border-left-color:var(--jade)}
+  .news-card-head{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase}
+  .news-source{color:var(--gold);font-weight:700}
+  .news-impact-badge{padding:2px 7px;border-radius:2px;font-size:8px;font-weight:700}
+  .news-impact-badge.high{background:var(--rust);color:white}
+  .news-impact-badge.medium{background:var(--amber);color:var(--black)}
+  .news-impact-badge.low{background:var(--jade);color:white}
+  .news-time{color:var(--bone-dim);margin-left:auto}
+  .news-title{font-family:'Fraunces',serif;font-size:14px;color:var(--bone);line-height:1.4;margin-bottom:6px}
+  .news-desc{font-size:11px;color:var(--bone-dim);line-height:1.6}
+  .news-signal{margin-top:10px;padding-top:10px;border-top:1px dashed var(--smoke);display:flex;align-items:center;gap:10px}
+  .signal-arrow{width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:900;border-radius:2px;flex-shrink:0}
+  .signal-arrow.bull{background:rgba(91,168,114,.15);color:var(--jade);border:1px solid var(--jade-deep)}
+  .signal-arrow.bear{background:rgba(224,72,53,.15);color:var(--rust);border:1px solid var(--rust-deep)}
+  .signal-arrow.neutral{background:var(--smoke);color:var(--bone-dim)}
+  .signal-content{flex:1;font-size:10px;line-height:1.4}
+  .signal-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;margin-bottom:2px}
+  .signal-label.bull{color:var(--jade)}.signal-label.bear{color:var(--rust)}.signal-label.neutral{color:var(--bone-dim)}
+  .news-correlation{margin-top:8px;padding:8px 10px;background:rgba(212,164,55,.06);border-left:2px solid var(--gold);font-size:10px;color:var(--gold-bright);line-height:1.4}
+  .news-correlation strong{color:var(--gold-bright);letter-spacing:1px;font-size:9px;display:block;margin-bottom:3px}
+  .trump-card{padding:14px 16px;background:linear-gradient(135deg,rgba(255,176,32,.06),var(--obsidian));border:1px solid rgba(255,176,32,.2);border-left:3px solid var(--amber);border-radius:2px}
+  .trump-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+  .trump-platform{font-size:10px;letter-spacing:2px;color:var(--amber);font-weight:700}
+  .trump-time{font-size:9px;color:var(--bone-dim)}
+  .trump-quote{font-family:'Fraunces',serif;font-size:14px;font-style:italic;color:var(--bone);line-height:1.5;padding:8px 0}
+  .trump-analysis{margin-top:8px;padding:8px 10px;background:rgba(255,176,32,.06);border-left:2px solid var(--amber);font-size:10px;color:var(--bone-dim)}
+  .cal-list{display:flex;flex-direction:column;gap:6px}
+  .cal-item{display:grid;grid-template-columns:60px 1fr auto auto;gap:14px;padding:11px 14px;background:var(--obsidian);border-radius:2px;align-items:center;border-left:2px solid var(--smoke)}
+  .cal-item.high{border-left-color:var(--rust)}
+  .cal-item.medium{border-left-color:var(--amber)}
+  .cal-time{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--gold-bright);font-style:italic}
+  .cal-event{font-size:11px;color:var(--bone);line-height:1.3}
+  .cal-event-sub{font-size:9px;color:var(--bone-dim);margin-top:2px}
+  .cal-impact{font-size:10px;font-weight:700}
+  .cal-impact.high{color:var(--rust)}.cal-impact.medium{color:var(--amber)}.cal-impact.low{color:var(--jade)}
+  .cal-warn{padding:3px 6px;font-size:8px;background:rgba(224,72,53,.2);color:var(--rust);border-radius:2px;font-weight:700}
+  .matrix{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .matrix-cell{padding:14px;background:var(--obsidian);border-radius:2px;border:1px solid var(--smoke)}
+  .matrix-cell.full{grid-column:span 2}
+  .matrix-cell.reco{background:linear-gradient(135deg,rgba(212,164,55,.08),var(--obsidian));border-color:var(--gold-dark)}
+  .matrix-label{font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+  .matrix-value{font-family:'Fraunces',serif;font-size:22px;font-weight:900;font-style:italic;line-height:1}
+  .matrix-value.bull{color:var(--jade)}
+  .matrix-value.bear{color:var(--rust)}
+  .matrix-value.neutral{color:var(--bone)}
+  .matrix-desc{font-size:10px;color:var(--bone-dim);margin-top:6px;line-height:1.4}
+  .loading{text-align:center;padding:40px 20px;color:var(--bone-dim);font-size:10px;letter-spacing:2px}
+  .footer{text-align:center;padding:24px 0;color:var(--bone-dim);font-size:9px;letter-spacing:3px;margin-top:16px;border-top:1px dashed var(--smoke);text-transform:uppercase}
+  .footer em{color:var(--gold);font-family:'Fraunces',serif;font-weight:700;font-style:italic;letter-spacing:0;text-transform:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="config-bar">
+    <label>◆ API :</label>
+    <input type="text" id="apiUrl" value="http://localhost:3000" placeholder="https://your-server.railway.app">
+    <button onclick="saveConfig()">CONNECT</button>
+    <button onclick="refreshNow()">REFRESH</button>
+    <div class="status" id="connStatus">⚪ Non connecté</div>
+  </div>
+
+  <div class="header">
+    <div class="brand">
+      <div class="brand-mark">K</div>
+      <div>
+        <h1>Kao <em>V2</em></h1>
+        <div class="subtitle">Live Command Center · Trade Observer</div>
+      </div>
+    </div>
+    <div></div>
+    <div class="live">
+      <div class="live-dot"></div>
+      <div class="live-text">LIVE · <span id="clock">--:--:--</span></div>
+    </div>
+  </div>
+
+  <!-- LIVE TRADES SECTION (NEW) -->
+  <div class="trades-panel">
+    <div class="trades-header">
+      <div>
+        <div class="trades-title">Mes Trades Live · Avis Kao V2</div>
+        <div class="panel-sub">🔍 Observer only · Jamais d'exécution automatique</div>
+      </div>
+      <div class="trade-stats">
+        <div class="trade-stat">
+          <div class="trade-stat-label">Open</div>
+          <div class="trade-stat-val" id="openCount">0</div>
+        </div>
+        <div class="trade-stat">
+          <div class="trade-stat-label">Today P&L</div>
+          <div class="trade-stat-val" id="dayPL">$0</div>
+        </div>
+        <div class="trade-stat">
+          <div class="trade-stat-label">Win Rate</div>
+          <div class="trade-stat-val" id="winRate">--</div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="openTrades" class="trades-grid"></div>
+    <div id="tradesEmpty" class="empty-trades" style="display:none">
+      Aucun trade ouvert · L'EA MT5 enverra les trades ici dès qu'ils seront placés
+    </div>
+    
+    <div style="margin-top:20px">
+      <div class="panel-sub" style="margin-bottom:8px">◆ Historique récent</div>
+      <div id="closedTradesList" class="closed-trades-list"></div>
+    </div>
+  </div>
+
+  <div class="ticker" id="ticker">
+    <div class="tick gold"><div class="tick-head"><div class="tick-sym">XAU/USD</div><div class="tick-change" id="xauChange">--</div></div><div class="tick-price" id="xauPrice">Loading...</div><div class="tick-context">Spot Gold</div></div>
+    <div class="tick"><div class="tick-head"><div class="tick-sym">DXY</div><div class="tick-change" id="dxyChange">--</div></div><div class="tick-price" id="dxyPrice">--</div><div class="tick-context">USD Index</div></div>
+    <div class="tick"><div class="tick-head"><div class="tick-sym">US 10Y</div><div class="tick-change" id="yieldChange">--</div></div><div class="tick-price" id="yieldPrice">--</div><div class="tick-context">Treasury</div></div>
+    <div class="tick"><div class="tick-head"><div class="tick-sym">VIX</div><div class="tick-change" id="vixChange">--</div></div><div class="tick-price" id="vixPrice">--</div><div class="tick-context">Volatility</div></div>
+    <div class="tick"><div class="tick-head"><div class="tick-sym">WTI</div><div class="tick-change" id="wtiChange">--</div></div><div class="tick-price" id="wtiPrice">--</div><div class="tick-context">Oil</div></div>
+  </div>
+
+  <div class="main-grid">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">News Flow · Live</div>
+          <div class="panel-sub"><span id="newsCount">0</span> news · Auto 2min</div>
+        </div>
+      </div>
+      <div class="news-filters">
+        <button class="filter active" onclick="setFilter('all',event)">ALL</button>
+        <button class="filter" onclick="setFilter('high',event)">HIGH</button>
+        <button class="filter" onclick="setFilter('gold',event)">GOLD</button>
+        <button class="filter" onclick="setFilter('trump',event)">TRUMP</button>
+        <button class="filter" onclick="setFilter('fed',event)">FED</button>
+        <button class="filter" onclick="setFilter('geo',event)">GEO</button>
+      </div>
+      <div class="news-list" id="newsList"><div class="loading">Connexion...</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Trump Tracker</div>
+          <div class="panel-sub">Truth Social · White House</div>
+        </div>
+      </div>
+      <div class="trump-feed" id="trumpFeed"><div class="loading">Connexion...</div></div>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Calendrier Éco</div>
+          <div class="panel-sub">Today · Forex Factory</div>
+        </div>
+      </div>
+      <div class="cal-list" id="calList"><div class="loading">Connexion...</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-title">Gold Impact Matrix</div>
+          <div class="panel-sub">Sentiment live</div>
+        </div>
+      </div>
+      <div class="matrix" id="matrix">
+        <div class="matrix-cell"><div class="matrix-label">Sentiment 24h</div><div class="matrix-value neutral" id="mSent">--</div><div class="matrix-desc">Calcul en cours</div></div>
+        <div class="matrix-cell"><div class="matrix-label">Bias Fed</div><div class="matrix-value neutral" id="mFed">--</div><div class="matrix-desc">Déduit news Fed</div></div>
+        <div class="matrix-cell"><div class="matrix-label">USD Strength</div><div class="matrix-value neutral" id="mUsd">--</div><div class="matrix-desc">DXY live</div></div>
+        <div class="matrix-cell"><div class="matrix-label">Safe Haven</div><div class="matrix-value neutral" id="mHaven">--</div><div class="matrix-desc">Géopolitique</div></div>
+        <div class="matrix-cell reco full"><div class="matrix-label">◆ Reco</div><div class="matrix-value" style="color:var(--gold-bright);font-size:18px" id="mReco">Connexion...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    KAO V2 · <em>Observer · Never executes</em> · Stay disciplined
+  </div>
+</div>
+
+<script>
+let API = localStorage.getItem('kaoApi') || 'http://localhost:3000';
+document.getElementById('apiUrl').value = API;
+let currentFilter = 'all';
+let allNews = [];
+
+function saveConfig(){
+  API = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
+  localStorage.setItem('kaoApi', API);
+  fetchAll();
+}
+
+function updateClock(){ document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR'); }
+setInterval(updateClock, 1000); updateClock();
+
+async function refreshNow(){
+  try { await fetch(API + '/api/refresh'); setTimeout(fetchAll, 1500); }
+  catch(e){ setStatus('err', '❌ Échec'); }
+}
+
+function setStatus(type, msg){
+  const el = document.getElementById('connStatus');
+  el.className = 'status ' + type;
+  el.textContent = msg;
+}
+
+async function fetchAll(){
+  try {
+    const res = await fetch(API + '/api/all');
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    
+    renderPrices(data.prices || {});
+    allNews = data.news || [];
+    renderNews();
+    renderTrump(data.trump || []);
+    renderCal(data.calendar || []);
+    renderMatrix(data.matrix || {});
+    renderTrades(data.trades || [], data.advices || [], data.closedTrades || []);
+    
+    const last = data.lastUpdate ? new Date(data.lastUpdate).toLocaleTimeString('fr-FR') : '--';
+    setStatus('ok', '🟢 Connecté · MAJ ' + last);
+  } catch(e){
+    setStatus('err', '❌ ' + e.message);
+  }
+}
+
+function renderTrades(trades, advices, closed){
+  const openContainer = document.getElementById('openTrades');
+  const emptyEl = document.getElementById('tradesEmpty');
+  
+  document.getElementById('openCount').textContent = trades.length;
+  
+  // Find advice for each trade
+  const tradeAdviceMap = {};
+  advices.forEach(a => { tradeAdviceMap[a.trade_ticket] = a; });
+  
+  if(!trades.length){
+    openContainer.innerHTML = '';
+    emptyEl.style.display = 'block';
+  } else {
+    emptyEl.style.display = 'none';
+    openContainer.innerHTML = trades.map(t => {
+      const advice = tradeAdviceMap[t.ticket] || {};
+      const verdictClass = (advice.verdict || 'NEUTRAL').toLowerCase();
+      return `
+        <div class="trade-card ${verdictClass}">
+          <div class="trade-head">
+            <div>
+              <div class="trade-direction ${t.direction}">${t.direction}</div>
+              <div class="trade-symbol">${t.symbol} · ${t.volume} lot</div>
+            </div>
+            <div class="trade-verdict ${advice.verdict || 'NEUTRAL'}">${advice.verdict || '...'}</div>
+          </div>
+          
+          <div class="trade-details">
+            <div class="td-item">
+              <div class="td-label">Entry</div>
+              <div class="td-value">${t.entry.toFixed(2)}</div>
+            </div>
+            <div class="td-item">
+              <div class="td-label">SL (${t.sl_pts ? t.sl_pts.toFixed(1) : '?'} pts)</div>
+              <div class="td-value" style="color:${t.sl > 0 ? 'var(--rust)' : 'var(--rust)'};font-size:12px">
+                ${t.sl > 0 ? t.sl.toFixed(2) : '⚠️ NONE'}
+              </div>
+            </div>
+            <div class="td-item">
+              <div class="td-label">TP (${t.tp_pts ? t.tp_pts.toFixed(1) : '?'} pts)</div>
+              <div class="td-value" style="color:var(--jade);font-size:12px">
+                ${t.tp > 0 ? t.tp.toFixed(2) : '—'}
+              </div>
+            </div>
+          </div>
+          
+          ${advice.score !== undefined ? `
+          <div class="score-bar">
+            <div class="score-fill ${verdictClass}" style="width:${advice.score}%"></div>
+          </div>
+          <div style="font-size:10px;color:var(--bone-dim);text-align:right;margin-top:4px">
+            Score ${advice.score}/100
+          </div>
+          ` : ''}
+          
+          ${advice.positives && advice.positives.length ? `
+            <div class="trade-opinion" style="border-left-color:var(--jade)">
+              <strong>✅ Points forts</strong>
+              <ul class="points-list">
+                ${advice.positives.map(p => `<li>${p}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
+          
+          ${advice.warnings && advice.warnings.length ? `
+            <div class="trade-opinion" style="border-left-color:var(--rust);background:rgba(224,72,53,.05)">
+              <strong>⚠️ Alertes</strong>
+              <ul class="points-list">
+                ${advice.warnings.map(w => `<li>${w}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
+          
+          ${advice.suggested_action ? `
+            <div class="trade-opinion">
+              <strong>💡 Conseil</strong>
+              ${advice.suggested_action}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+  }
+  
+  // Closed trades
+  const closedContainer = document.getElementById('closedTradesList');
+  if(!closed.length){
+    closedContainer.innerHTML = '<div style="font-size:10px;color:var(--bone-dim);text-align:center;padding:10px">Aucun trade fermé récemment</div>';
+  } else {
+    closedContainer.innerHTML = closed.slice(0, 8).map(t => `
+      <div class="closed-trade">
+        <div style="font-size:10px;color:var(--bone-dim)">${timeAgo(t.time)}</div>
+        <div>${t.symbol} · ${t.volume} lot</div>
+        <div class="closed-pl ${t.net_profit >= 0 ? 'positive' : 'negative'}">
+          ${t.net_profit >= 0 ? '+' : ''}$${t.net_profit.toFixed(2)}
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  // Calculate stats
+  const dayPL = closed.reduce((sum, t) => sum + t.net_profit, 0);
+  const plEl = document.getElementById('dayPL');
+  plEl.textContent = (dayPL >= 0 ? '+' : '') + '$' + dayPL.toFixed(0);
+  plEl.className = 'trade-stat-val ' + (dayPL >= 0 ? 'positive' : 'negative');
+  
+  if(closed.length > 0){
+    const wins = closed.filter(t => t.net_profit > 0).length;
+    document.getElementById('winRate').textContent = Math.round(wins / closed.length * 100) + '%';
+  }
+}
+
+function renderPrices(p){
+  const set = (key, priceEl, changeEl, format) => {
+    const d = p[key];
+    if(!d){ document.getElementById(priceEl).textContent = '--'; return; }
+    document.getElementById(priceEl).textContent = format ? format(d.price) : d.price.toFixed(2);
+    const ch = document.getElementById(changeEl);
+    ch.textContent = (d.change >= 0 ? '+' : '') + d.change + '%';
+    ch.className = 'tick-change ' + (d.change >= 0 ? 'up' : 'down');
+  };
+  set('XAUUSD', 'xauPrice', 'xauChange', v => v.toLocaleString('fr-FR', {maximumFractionDigits:2}));
+  set('DXY', 'dxyPrice', 'dxyChange');
+  set('US10Y', 'yieldPrice', 'yieldChange', v => v.toFixed(2) + '%');
+  set('VIX', 'vixPrice', 'vixChange');
+  set('WTI', 'wtiPrice', 'wtiChange', v => '$' + v.toFixed(2));
+}
+
+function timeAgo(date){
+  if(!date) return '--';
+  const d = new Date(date);
+  const mins = Math.floor((Date.now() - d) / 60000);
+  if(mins < 1) return 'instant';
+  if(mins < 60) return mins + 'm';
+  const h = Math.floor(mins / 60);
+  if(h < 24) return h + 'h';
+  return Math.floor(h/24) + 'j';
+}
+
+function renderNews(){
+  const container = document.getElementById('newsList');
+  let filtered = allNews;
+  if(currentFilter === 'high') filtered = allNews.filter(n => n.impact === 'high');
+  else if(currentFilter !== 'all') filtered = allNews.filter(n => n.category === currentFilter);
+  document.getElementById('newsCount').textContent = filtered.length;
+  if(!filtered.length){ container.innerHTML = '<div class="loading">Aucune news</div>'; return; }
+  container.innerHTML = filtered.map(n => `
+    <div class="news-card ${n.impact}" onclick="${n.link ? `window.open('${n.link}','_blank')` : ''}">
+      <div class="news-card-head">
+        <span class="news-source">◆ ${n.source}</span>
+        <span class="news-impact-badge ${n.impact}">${n.impact.toUpperCase()}</span>
+        <span class="news-time">${timeAgo(n.time)}</span>
+      </div>
+      <div class="news-title">${n.title}</div>
+      <div class="news-desc">${n.desc || ''}</div>
+      <div class="news-signal">
+        <div class="signal-arrow ${n.signal}">${n.signal === 'bull' ? '↑' : n.signal === 'bear' ? '↓' : '→'}</div>
+        <div class="signal-content">
+          <div class="signal-label ${n.signal}">${n.signalTitle}</div>
+          <div>${n.signalText}</div>
+        </div>
+      </div>
+      <div class="news-correlation">
+        <strong>◆ IMPACT PLAN</strong>
+        ${n.correlation}
+      </div>
+    </div>
+  `).join('');
+}
+
+function setFilter(f, ev){
+  currentFilter = f;
+  document.querySelectorAll('.filter').forEach(t => t.classList.remove('active'));
+  if(ev && ev.target) ev.target.classList.add('active');
+  renderNews();
+}
+
+function renderTrump(posts){
+  const c = document.getElementById('trumpFeed');
+  if(!posts.length){ c.innerHTML = '<div class="loading">Pas de posts</div>'; return; }
+  c.innerHTML = posts.map(t => `
+    <div class="trump-card">
+      <div class="trump-head">
+        <div class="trump-platform">🇺🇸 ${t.platform}</div>
+        <div class="trump-time">${timeAgo(t.time)}</div>
+      </div>
+      <div class="trump-quote">"${t.text}"</div>
+      <div class="trump-analysis">${t.analysis}</div>
+    </div>
+  `).join('');
+}
+
+function renderCal(events){
+  const c = document.getElementById('calList');
+  if(!events.length){ c.innerHTML = '<div class="loading">Aucun event</div>'; return; }
+  c.innerHTML = events.map(e => `
+    <div class="cal-item ${e.impact}">
+      <div class="cal-time">${e.time}</div>
+      <div>
+        <div class="cal-event">${e.event}</div>
+        <div class="cal-event-sub">${e.sub || ''}</div>
+      </div>
+      <div class="cal-impact ${e.impact}">${e.impact === 'high' ? '●●●' : e.impact === 'medium' ? '●●' : '●'}</div>
+      ${e.warn ? '<div class="cal-warn">NO TRADE</div>' : '<div></div>'}
+    </div>
+  `).join('');
+}
+
+function renderMatrix(m){
+  if(!m || !m.sentiment) return;
+  const set = (id, val, cls) => {
+    const el = document.getElementById(id);
+    el.textContent = val || '--';
+    el.className = 'matrix-value ' + (cls || 'neutral');
+  };
+  set('mSent', m.sentiment, m.sentimentClass);
+  set('mFed', m.fedBias, m.fedBiasClass);
+  set('mUsd', m.usdStrength, m.usdStrengthClass);
+  set('mHaven', m.geoTension, m.geoTensionClass);
+  document.getElementById('mReco').textContent = m.reco || '--';
+}
+
+fetchAll();
+setInterval(fetchAll, 30000);  // Refresh every 30s for live trades
+</script>
+</body>
+</html>
