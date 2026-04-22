@@ -2,6 +2,8 @@
  * KAO V2 LIVE SERVER v2 - with trade observation
  */
 const express = require('express');
+const path = require('path');
+app.use(express.static(path.join(__dirname)));
 const cors = require('cors');
 const fetch = require('node-fetch');
 const Parser = require('rss-parser');
