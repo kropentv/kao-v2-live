@@ -1,10 +1,10 @@
 /**
- * KAO V2 LIVE SERVER v2 - with trade observation
+ * KAO V2 LIVE SERVER v3
+ * Now serves dashboard.html directly - no Netlify needed
  */
 const express = require('express');
-const path = require('path');
-app.use(express.static(path.join(__dirname)));
 const cors = require('cors');
+const path = require('path');
 const fetch = require('node-fetch');
 const Parser = require('rss-parser');
 const cron = require('node-cron');
@@ -13,6 +13,9 @@ const TelegramBot = require('node-telegram-bot-api');
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ✨ Serve dashboard.html and other static files
+app.use(express.static(path.join(__dirname)));
 
 const parser = new Parser({ timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 KaoV2' } });
 
@@ -89,7 +92,6 @@ function correlationToPlan(s, i) {
   return 'Contexte neutre';
 }
 
-// ============ TRADE ADVISORY ENGINE ============
 function analyzeTrade(trade, accountInfo) {
   const sentiment = cache.matrix?.sentiment || 'NEUTRAL';
   const fedBias = cache.matrix?.fedBias || 'NEUTRAL';
@@ -105,7 +107,6 @@ function analyzeTrade(trade, accountInfo) {
   const isSell = trade.direction === 'SELL';
   const entry = trade.entry;
   
-  // LEVEL ANALYSIS
   if (isSell) {
     if (Math.abs(entry - LEVELS.kijun_h1) < 3) {
       advice.positives.push(`✅ Entry proche Kijun H1 (${LEVELS.kijun_h1}) · zone short prioritaire`);
@@ -140,18 +141,15 @@ function analyzeTrade(trade, accountInfo) {
     }
   }
 
-  // SENTIMENT ALIGNMENT
   if (sentiment === 'BULLISH' && isBuy) { advice.positives.push(`✅ Aligné sentiment macro BULLISH`); advice.score += 10; }
   else if (sentiment === 'BULLISH' && isSell) { advice.warnings.push(`⚠️ SHORT contre sentiment BULLISH`); advice.score -= 15; }
   else if (sentiment === 'BEARISH' && isSell) { advice.positives.push(`✅ Aligné sentiment BEARISH`); advice.score += 10; }
   else if (sentiment === 'BEARISH' && isBuy) { advice.warnings.push(`⚠️ BUY contre sentiment BEARISH`); advice.score -= 15; }
 
-  // FED / USD
   if (fedBias === 'DOVISH' && isBuy) { advice.positives.push(`✅ Fed DOVISH soutient BUY`); advice.score += 8; }
   if (fedBias === 'HAWKISH' && isBuy) { advice.warnings.push(`⚠️ Fed HAWKISH`); advice.score -= 8; }
   if (usdStrength === 'WEAK' && isBuy) { advice.positives.push(`✅ USD faible bullish Gold`); advice.score += 5; }
 
-  // RISK MANAGEMENT
   if (trade.sl_pts === 0) { advice.warnings.push(`🚨 AUCUN SL · risque illimité`); advice.score -= 40; }
   else if (trade.sl_pts > 20) { advice.warnings.push(`⚠️ SL large (${trade.sl_pts.toFixed(1)} pts)`); advice.score -= 10; }
   else if (trade.sl_pts < 3) { advice.warnings.push(`⚠️ SL très serré (${trade.sl_pts.toFixed(1)} pts)`); advice.score -= 5; }
@@ -162,24 +160,20 @@ function analyzeTrade(trade, accountInfo) {
     else if (rr < 1) { advice.warnings.push(`⚠️ R:R ${rr.toFixed(2)} · SL > TP`); advice.score -= 15; }
   }
 
-  // LOT SIZE
   const isFTM = accountInfo?.balance && accountInfo.balance < 80000;
   const isEE = accountInfo?.balance && accountInfo.balance >= 80000;
   if (isFTM && trade.volume > 0.40) { advice.warnings.push(`⚠️ Lot ${trade.volume} trop gros pour 50K`); advice.score -= 15; }
   if (isEE && trade.volume > 0.60) { advice.warnings.push(`⚠️ Lot ${trade.volume} élevé pour 100K`); advice.score -= 10; }
 
-  // TIMING
   const hour = new Date().getHours();
   if (hour >= 9 && hour < 11) { advice.positives.push(`✅ Session Londres · optimal`); advice.score += 5; }
   else if (hour >= 14 && hour < 17) { advice.positives.push(`✅ Session NY · volatilité`); advice.score += 5; }
   else if (hour >= 11 && hour < 14) { advice.context_notes.push(`ℹ️ Midi · marché souvent plat`); advice.score -= 5; }
   else if (hour >= 22 || hour < 7) { advice.warnings.push(`⚠️ Session Asie · volume faible`); advice.score -= 10; }
 
-  // NEWS
   const upcoming = cache.calendar?.filter(c => c.warn).length || 0;
   if (upcoming > 0) { advice.warnings.push(`⚠️ ${upcoming} news HIGH aujourd'hui`); advice.score -= 5; }
 
-  // FINAL
   advice.score = Math.max(0, Math.min(100, advice.score));
   if (advice.score >= 70) advice.verdict = 'GOOD';
   else if (advice.score >= 50) advice.verdict = 'ACCEPTABLE';
@@ -221,7 +215,6 @@ async function sendClosedTradeTelegram(trade) {
   catch (e) { console.log('TG:', e.message); }
 }
 
-// Fetch functions (prices, news, trump, calendar) - identical to v1
 async function fetchPrices() {
   const symbols = { 'XAUUSD':'GC=F','DXY':'DX-Y.NYB','US10Y':'^TNX','VIX':'^VIX','WTI':'CL=F' };
   const prices = {};
@@ -334,7 +327,13 @@ function checkAuth(req, res, next) {
   next();
 }
 
-app.get('/', (req, res) => res.send('Kao V2 Live Server · OK'));
+// ✨ NEW: Dashboard route
+app.get('/dashboard', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dashboard.html'));
+});
+
+app.get('/', (req, res) => res.send('Kao V2 Live Server · OK · <a href="/dashboard">Open Dashboard</a>'));
+
 app.get('/api/all', (req, res) => res.json({
   prices: cache.prices, news: cache.news, trump: cache.trump,
   calendar: cache.calendar, matrix: cache.matrix,
@@ -346,7 +345,6 @@ app.get('/api/trades', (req, res) => res.json({ open: cache.trades, closed: cach
 app.get('/api/advices', (req, res) => res.json(cache.advices.slice(0, 30)));
 app.get('/api/refresh', async (req, res) => { await refreshAll(); res.json({ ok: true }); });
 
-// EA endpoints
 app.post('/api/trade/ping', checkAuth, (req, res) => {
   const { account, broker, balance, equity, leverage } = req.body;
   cache.accounts[account] = { broker, balance, equity, leverage, lastPing: new Date().toISOString() };
@@ -387,4 +385,5 @@ app.get('/api/telegram/test', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🚀 Kao V2 on ${PORT} · Auth: ${AUTH_TOKEN}`);
+  console.log(`📊 Dashboard: /dashboard`);
 });
