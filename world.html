@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kao V2 · World Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,700;0,900;1,400;1,700;1,900&family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --gold:#D4A437;--gold-bright:#F5C842;--gold-light:#FFE08A;--gold-dark:#8B6914;--gold-shadow:#4A3708;
+    --black:#030304;--obsidian:#0A0A0D;--ink:#111115;--smoke:#1C1C22;--fog:#2A2A32;
+    --bone:#EDE7D9;--bone-dim:#A8A49A;
+    --rust:#E04835;--rust-deep:#8B2416;--rust-glow:rgba(224,72,53,.4);
+    --jade:#5BA872;--jade-deep:#2C5239;--jade-glow:rgba(91,168,114,.4);
+    --amber:#FFB020;--amber-glow:rgba(255,176,32,.4);
+    --azure:#4A9FD1;--azure-glow:rgba(74,159,209,.4);
+    --violet:#A970FF;--violet-glow:rgba(169,112,255,.4);
+  }
+  html,body{overflow-x:hidden}
+  body{
+    background:var(--black);color:var(--bone);
+    font-family:'IBM Plex Sans',-apple-system,sans-serif;
+    min-height:100vh;position:relative;line-height:1.5;
+  }
+  /* Ambient background with animated glow */
+  body::before{
+    content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+    background:
+      radial-gradient(ellipse at 20% 20%,rgba(212,164,55,.08),transparent 50%),
+      radial-gradient(ellipse at 80% 80%,rgba(74,159,209,.05),transparent 50%),
+      radial-gradient(ellipse at 50% 50%,rgba(169,112,255,.03),transparent 70%);
+    animation:ambientShift 20s ease-in-out infinite;
+  }
+  @keyframes ambientShift{
+    0%,100%{transform:scale(1) rotate(0deg);opacity:1}
+    50%{transform:scale(1.1) rotate(1deg);opacity:.8}
+  }
+  body::after{
+    content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:
+      linear-gradient(rgba(212,164,55,.015) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(212,164,55,.015) 1px,transparent 1px);
+    background-size:50px 50px;
+  }
+
+  .wrap{max-width:1600px;margin:0 auto;padding:16px;position:relative;z-index:1}
+
+  /* ============ HEADER ============ */
+  .header{
+    display:grid;grid-template-columns:auto 1fr auto auto;gap:24px;align-items:center;
+    padding:18px 28px;
+    background:linear-gradient(135deg,rgba(14,14,16,.8),rgba(22,22,26,.6));
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(212,164,55,.15);border-radius:4px;
+    margin-bottom:16px;position:relative;overflow:hidden;
+    box-shadow:0 0 40px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.03);
+  }
+  .header::before{
+    content:'';position:absolute;top:0;left:0;right:0;height:1px;
+    background:linear-gradient(90deg,transparent,var(--gold) 50%,transparent);
+    animation:scanline 4s linear infinite;
+  }
+  @keyframes scanline{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+  .brand{display:flex;align-items:center;gap:16px}
+  .brand-mark{
+    width:52px;height:52px;
+    background:linear-gradient(135deg,var(--gold),var(--gold-dark));
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Fraunces',serif;font-size:26px;font-weight:900;color:var(--black);font-style:italic;
+    clip-path:polygon(15% 0,100% 0,85% 100%,0 100%);
+    box-shadow:0 0 20px rgba(212,164,55,.4);
+  }
+  .brand h1{font-family:'Fraunces',serif;font-size:24px;font-weight:400;line-height:1}
+  .brand h1 em{font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .brand .subtitle{font-size:9px;letter-spacing:4px;color:var(--gold);text-transform:uppercase;margin-top:4px}
+  .nav-links{display:flex;gap:8px}
+  .nav-link{
+    padding:8px 16px;font-size:10px;letter-spacing:2px;text-transform:uppercase;
+    color:var(--bone-dim);text-decoration:none;border-radius:3px;
+    border:1px solid transparent;transition:all .3s;font-family:'JetBrains Mono',monospace;
+  }
+  .nav-link:hover{background:rgba(212,164,55,.06);border-color:rgba(212,164,55,.2);color:var(--gold)}
+  .nav-link.active{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--black);font-weight:700}
+  .live-badge{
+    display:flex;align-items:center;gap:10px;padding:8px 16px;
+    background:rgba(91,168,114,.08);border:1px solid var(--jade-deep);border-radius:3px;
+  }
+  .live-dot{width:6px;height:6px;background:var(--jade);border-radius:50%;
+    box-shadow:0 0 12px var(--jade);animation:pulse 2s ease infinite}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.4)}}
+  .live-text{font-size:10px;letter-spacing:2px;color:var(--jade);font-family:'JetBrains Mono',monospace}
+
+  /* ============ SESSION CLOCK ============ */
+  .sessions-panel{
+    background:linear-gradient(135deg,rgba(14,14,16,.8),rgba(22,22,26,.6));
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(212,164,55,.15);border-radius:4px;
+    padding:20px 24px;margin-bottom:16px;
+    box-shadow:0 0 30px rgba(0,0,0,.3);
+  }
+  .sessions-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .sessions-title{
+    font-family:'Fraunces',serif;font-size:16px;font-weight:700;font-style:italic;
+    color:var(--gold-bright);letter-spacing:-.3px;
+  }
+  .sessions-title::before{content:'◆ ';color:var(--gold)}
+  .session-now{
+    font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--jade);
+    padding:4px 10px;background:rgba(91,168,114,.1);border-radius:2px;letter-spacing:1px;
+  }
+  .sessions-track{
+    position:relative;height:36px;background:var(--black);border-radius:3px;overflow:hidden;
+    border:1px solid var(--fog);
+  }
+  .session-block{
+    position:absolute;top:0;bottom:0;display:flex;align-items:center;justify-content:center;
+    font-size:10px;letter-spacing:1.5px;color:rgba(255,255,255,.9);font-weight:700;
+    text-transform:uppercase;overflow:hidden;
+  }
+  .session-block.tokyo{background:linear-gradient(135deg,rgba(169,112,255,.3),rgba(169,112,255,.1));border-right:1px solid rgba(169,112,255,.3)}
+  .session-block.london{background:linear-gradient(135deg,rgba(74,159,209,.3),rgba(74,159,209,.1));border-right:1px solid rgba(74,159,209,.3)}
+  .session-block.ny{background:linear-gradient(135deg,rgba(255,176,32,.3),rgba(255,176,32,.1))}
+  .session-block.overlap{background:linear-gradient(135deg,rgba(212,164,55,.4),rgba(245,200,66,.2));animation:hotpulse 2s infinite}
+  @keyframes hotpulse{0%,100%{opacity:1}50%{opacity:.6}}
+  .session-cursor{
+    position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--gold-bright);
+    box-shadow:0 0 10px var(--gold-bright);z-index:2;transition:left 1s linear;
+  }
+  .session-cursor::before{
+    content:'';position:absolute;top:-4px;left:-4px;width:10px;height:10px;
+    background:var(--gold-bright);border-radius:50%;
+    box-shadow:0 0 20px var(--gold-bright);animation:pulse 1.5s infinite;
+  }
+  .session-hours{display:flex;justify-content:space-between;font-size:8px;color:var(--bone-dim);
+    margin-top:6px;font-family:'JetBrains Mono',monospace;letter-spacing:1px}
+
+  /* ============ MAIN LAYOUT ============ */
+  .main-layout{
+    display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:16px;
+  }
+  @media (max-width:1100px){.main-layout{grid-template-columns:1fr}}
+
+  /* ============ WORLD MAP ============ */
+  .map-panel{
+    background:linear-gradient(135deg,rgba(14,14,16,.8),rgba(22,22,26,.6));
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(212,164,55,.15);border-radius:4px;
+    overflow:hidden;position:relative;
+    box-shadow:0 0 30px rgba(0,0,0,.3);
+  }
+  .map-header{
+    padding:16px 22px;display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid rgba(212,164,55,.1);
+  }
+  .map-title{
+    font-family:'Fraunces',serif;font-size:16px;font-weight:700;font-style:italic;
+    color:var(--gold-bright);
+  }
+  .map-title::before{content:'◆ ';color:var(--gold)}
+  .map-legend{display:flex;gap:10px;font-size:9px;letter-spacing:1px;color:var(--bone-dim)}
+  .legend-item{display:flex;align-items:center;gap:5px}
+  .legend-dot{width:6px;height:6px;border-radius:50%}
+  .legend-dot.bull{background:var(--jade);box-shadow:0 0 8px var(--jade-glow)}
+  .legend-dot.bear{background:var(--rust);box-shadow:0 0 8px var(--rust-glow)}
+  .legend-dot.econ{background:var(--amber);box-shadow:0 0 8px var(--amber-glow)}
+  .legend-dot.session{background:var(--azure);box-shadow:0 0 8px var(--azure-glow)}
+  #worldMap{height:500px;width:100%;background:var(--black)}
+  .leaflet-container{background:var(--black)!important}
+  .leaflet-control-attribution{background:rgba(0,0,0,.7)!important;color:var(--bone-dim)!important;font-size:8px!important}
+  .leaflet-control-attribution a{color:var(--gold)!important}
+  .leaflet-control-zoom a{
+    background:rgba(14,14,16,.9)!important;border:1px solid var(--fog)!important;
+    color:var(--gold)!important;font-family:'Fraunces',serif!important;
+  }
+  .leaflet-control-zoom a:hover{background:rgba(212,164,55,.2)!important}
+  
+  /* Custom marker styles */
+  .map-marker{
+    position:relative;width:14px;height:14px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+  }
+  .map-marker::after{
+    content:'';position:absolute;inset:-6px;border-radius:50%;
+    border:1px solid currentColor;opacity:.4;animation:ringPulse 2s ease-out infinite;
+  }
+  @keyframes ringPulse{
+    0%{transform:scale(.8);opacity:.8}
+    100%{transform:scale(2.5);opacity:0}
+  }
+  .map-marker.bull{background:var(--jade);box-shadow:0 0 15px var(--jade-glow);color:var(--jade)}
+  .map-marker.bear{background:var(--rust);box-shadow:0 0 15px var(--rust-glow);color:var(--rust)}
+  .map-marker.econ{background:var(--amber);box-shadow:0 0 15px var(--amber-glow);color:var(--amber)}
+  .map-marker.session{background:var(--azure);box-shadow:0 0 15px var(--azure-glow);color:var(--azure)}
+  .leaflet-popup-content-wrapper{
+    background:rgba(14,14,16,.95)!important;color:var(--bone)!important;
+    border:1px solid var(--gold-dark)!important;border-radius:3px!important;
+    box-shadow:0 0 20px rgba(212,164,55,.2)!important;
+  }
+  .leaflet-popup-tip{background:rgba(14,14,16,.95)!important}
+  .popup-title{font-family:'Fraunces',serif;font-size:13px;color:var(--gold-bright);font-style:italic;font-weight:700;margin-bottom:4px}
+  .popup-desc{font-size:11px;color:var(--bone-dim);line-height:1.4}
+  .popup-impact{
+    margin-top:6px;padding:3px 8px;font-size:9px;letter-spacing:1px;
+    border-radius:2px;text-transform:uppercase;font-weight:700;display:inline-block;
+  }
+  .popup-impact.bull{background:rgba(91,168,114,.2);color:var(--jade)}
+  .popup-impact.bear{background:rgba(224,72,53,.2);color:var(--rust)}
+  .popup-impact.neutral{background:var(--smoke);color:var(--bone-dim)}
+
+  /* ============ LIVE TV ============ */
+  .tv-panel{
+    background:linear-gradient(135deg,rgba(14,14,16,.8),rgba(22,22,26,.6));
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(212,164,55,.15);border-radius:4px;
+    display:flex;flex-direction:column;
+    box-shadow:0 0 30px rgba(0,0,0,.3);
+  }
+  .tv-header{
+    padding:14px 20px;display:flex;justify-content:space-between;align-items:center;
+    border-bottom:1px solid rgba(212,164,55,.1);
+  }
+  .tv-title{
+    font-family:'Fraunces',serif;font-size:15px;font-weight:700;font-style:italic;
+    color:var(--gold-bright);
+  }
+  .tv-title::before{content:'◆ ';color:var(--gold)}
+  .tv-live{
+    display:flex;align-items:center;gap:6px;padding:4px 10px;
+    background:rgba(224,72,53,.15);border:1px solid var(--rust);border-radius:2px;
+    font-size:9px;letter-spacing:1.5px;color:var(--rust);font-weight:700;
+  }
+  .tv-live::before{content:'●';animation:pulse 1s infinite}
+  .tv-channels{
+    display:flex;gap:4px;padding:10px 16px;background:var(--black);
+    overflow-x:auto;scrollbar-width:thin;
+  }
+  .tv-channel{
+    padding:6px 10px;background:var(--ink);border:1px solid var(--fog);
+    color:var(--bone-dim);font-size:9px;letter-spacing:1px;cursor:pointer;
+    border-radius:2px;text-transform:uppercase;white-space:nowrap;
+    transition:all .2s;font-family:'JetBrains Mono',monospace;font-weight:700;
+  }
+  .tv-channel:hover{border-color:var(--gold-dark);color:var(--gold)}
+  .tv-channel.active{
+    background:linear-gradient(135deg,var(--gold-dark),var(--gold));
+    color:var(--black);border-color:var(--gold);
+  }
+  .tv-embed{
+    aspect-ratio:16/9;background:var(--black);position:relative;overflow:hidden;
+  }
+  .tv-embed iframe{width:100%;height:100%;border:0;display:block}
+  .tv-info{
+    padding:10px 16px;font-size:10px;color:var(--bone-dim);line-height:1.5;
+    background:rgba(0,0,0,.3);letter-spacing:.5px;
+  }
+
+  /* ============ NEWS TICKER ============ */
+  .ticker-panel{
+    background:linear-gradient(90deg,rgba(224,72,53,.1),rgba(14,14,16,.8) 15%,rgba(14,14,16,.8) 85%,rgba(224,72,53,.1));
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(212,164,55,.15);border-radius:4px;
+    padding:14px 0;margin-bottom:16px;overflow:hidden;position:relative;
+    box-shadow:0 0 30px rgba(0,0,0,.3);
+  }
+  .ticker-badge{
+    position:absolute;top:50%;left:16px;transform:translateY(-50%);z-index:2;
+    padding:4px 10px;background:var(--rust);color:white;font-size:10px;
+    letter-spacing:2px;font-weight:700;border-radius:2px;
+    box-shadow:0 0 15px var(--rust-glow);font-family:'JetBrains Mono',monospace;
+  }
+  .ticker-badge::before{content:'● ';animation:pulse 1s infinite}
+  .ticker-track{
+    display:flex;gap:48px;padding-left:120px;
+    animation:tickerScroll 80s linear infinite;white-space:nowrap;
+  }
+  @keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+  .ticker-item{
+    display:inline-flex;align-items:center;gap:10px;font-size:12px;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .ticker-source{color:var(--gold);font-weight:700;font-size:10px;letter-spacing:1px}
+  .ticker-text{color:var(--bone)}
+  .ticker-time{color:var(--bone-dim);font-size:10px}
+  .ticker-sep{color:var(--gold-dark);margin:0 8px}
+
+  /* ============ NEWS GRID ============ */
+  .news-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-bottom:16px;
+  }
+  .news-card{
+    background:linear-gradient(135deg,rgba(14,14,16,.8),rgba(22,22,26,.6));
+    backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(212,164,55,.1);border-radius:4px;
+    padding:16px 18px;cursor:pointer;transition:all .3s;
+    box-shadow:0 0 20px rgba(0,0,0,.3);
+    position:relative;overflow:hidden;
+  }
+  .news-card::before{
+    content:'';position:absolute;top:0;left:0;width:3px;height:100%;
+    background:var(--gold);transition:width .3s;
+  }
+  .news-card:hover{transform:translateY(-2px);border-color:rgba(212,164,55,.3);box-shadow:0 4px 30px rgba(212,164,55,.1)}
+  .news-card:hover::before{width:6px}
+  .news-card.breaking{border-color:rgba(224,72,53,.3)}
+  .news-card.breaking::before{background:var(--rust)}
+  .news-head{
+    display:flex;align-items:center;gap:8px;margin-bottom:10px;
+    font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+    font-family:'JetBrains Mono',monospace;
+  }
+  .news-source{color:var(--gold);font-weight:700}
+  .news-badge{padding:2px 6px;border-radius:2px;font-size:8px;font-weight:700}
+  .news-badge.breaking{background:var(--rust);color:white;animation:pulse 1s infinite}
+  .news-badge.high{background:var(--rust);color:white}
+  .news-badge.medium{background:var(--amber);color:var(--black)}
+  .news-badge.low{background:var(--jade);color:white}
+  .news-time{color:var(--bone-dim);margin-left:auto}
+  .news-title{
+    font-family:'Fraunces',serif;font-size:14px;line-height:1.4;
+    color:var(--bone);margin-bottom:6px;letter-spacing:-.2px;
+  }
+  .news-desc{font-size:11px;color:var(--bone-dim);line-height:1.6}
+
+  /* ============ FOOTER ============ */
+  .footer{
+    text-align:center;padding:24px 0;color:var(--bone-dim);font-size:9px;
+    letter-spacing:3px;margin-top:16px;border-top:1px dashed var(--smoke);
+    text-transform:uppercase;font-family:'JetBrains Mono',monospace;
+  }
+  .footer em{color:var(--gold);font-family:'Fraunces',serif;font-weight:700;
+    font-style:italic;letter-spacing:0;text-transform:none}
+
+  .loading{text-align:center;padding:40px 20px;color:var(--bone-dim);font-size:10px;letter-spacing:2px;font-family:'JetBrains Mono',monospace}
+
+  /* Scrollbars */
+  ::-webkit-scrollbar{width:4px;height:4px}
+  ::-webkit-scrollbar-track{background:var(--black)}
+  ::-webkit-scrollbar-thumb{background:var(--gold-dark);border-radius:2px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="brand">
+      <div class="brand-mark">K</div>
+      <div>
+        <h1>Kao <em>V2</em></h1>
+        <div class="subtitle">World Intelligence · Live Global Monitor</div>
+      </div>
+    </div>
+    <div></div>
+    <div class="nav-links">
+      <a href="/dashboard" class="nav-link">Trading</a>
+      <a href="/world" class="nav-link active">World</a>
+    </div>
+    <div class="live-badge">
+      <div class="live-dot"></div>
+      <div class="live-text">LIVE · <span id="clock">--:--:--</span></div>
+    </div>
+  </div>
+
+  <!-- SESSIONS CLOCK -->
+  <div class="sessions-panel">
+    <div class="sessions-header">
+      <div class="sessions-title">Trading Sessions · 24H Clock</div>
+      <div class="session-now" id="sessionNow">Calculating...</div>
+    </div>
+    <div class="sessions-track" id="sessionsTrack">
+      <!-- Sessions injected by JS -->
+      <div class="session-cursor" id="sessionCursor"></div>
+    </div>
+    <div class="session-hours">
+      <span>00:00</span><span>03:00</span><span>06:00</span><span>09:00</span>
+      <span>12:00</span><span>15:00</span><span>18:00</span><span>21:00</span><span>23:59</span>
+    </div>
+  </div>
+
+  <!-- TICKER -->
+  <div class="ticker-panel">
+    <div class="ticker-badge">BREAKING</div>
+    <div class="ticker-track" id="tickerTrack">
+      <div class="ticker-item">
+        <span class="ticker-text">Loading live news feed...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN LAYOUT: MAP + TV -->
+  <div class="main-layout">
+    <!-- WORLD MAP -->
+    <div class="map-panel">
+      <div class="map-header">
+        <div class="map-title">Global Events Map</div>
+        <div class="map-legend">
+          <div class="legend-item"><div class="legend-dot bull"></div>Bullish Gold</div>
+          <div class="legend-item"><div class="legend-dot bear"></div>Bearish Gold</div>
+          <div class="legend-item"><div class="legend-dot econ"></div>Economic Event</div>
+          <div class="legend-item"><div class="legend-dot session"></div>Active Session</div>
+        </div>
+      </div>
+      <div id="worldMap"></div>
+    </div>
+
+    <!-- LIVE TV -->
+    <div class="tv-panel">
+      <div class="tv-header">
+        <div class="tv-title">Live Financial TV</div>
+        <div class="tv-live">LIVE 24/7</div>
+      </div>
+      <div class="tv-channels" id="tvChannels"></div>
+      <div class="tv-embed" id="tvEmbed">
+        <div class="loading" style="padding:80px 20px">Loading stream...</div>
+      </div>
+      <div class="tv-info" id="tvInfo">Select a channel above</div>
+    </div>
+  </div>
+
+  <!-- NEWS GRID -->
+  <div class="news-grid" id="newsGrid">
+    <div class="loading">Fetching global news...</div>
+  </div>
+
+  <div class="footer">
+    KAO V2 · <em>World Intelligence</em> · Real-time global monitor
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const API = window.location.origin;
+
+// ============ CLOCK ============
+function updateClock(){
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString('fr-FR');
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ============ SESSIONS TRACK ============
+// Sessions in UTC (then displayed relative to user)
+// Tokyo: 00:00-09:00 UTC | London: 08:00-17:00 UTC | NY: 13:00-22:00 UTC
+const sessions = [
+  { name: 'Tokyo', start: 0, end: 9, class: 'tokyo' },
+  { name: 'London', start: 8, end: 17, class: 'london' },
+  { name: 'NY', start: 13, end: 22, class: 'ny' }
+];
+
+function renderSessionsTrack(){
+  const track = document.getElementById('sessionsTrack');
+  // Keep the cursor
+  const cursor = document.getElementById('sessionCursor');
+  track.innerHTML = '';
+  
+  // Detect overlaps
+  // London-Tokyo overlap: 8-9 UTC
+  // London-NY overlap: 13-17 UTC (prime time)
+  sessions.forEach(s => {
+    const block = document.createElement('div');
+    block.className = 'session-block ' + s.class;
+    block.style.left = (s.start / 24 * 100) + '%';
+    block.style.width = ((s.end - s.start) / 24 * 100) + '%';
+    block.textContent = s.name;
+    track.appendChild(block);
+  });
+  
+  // Overlap blocks on top
+  const overlaps = [
+    { name: '⚡ OVERLAP', start: 8, end: 9 },
+    { name: '⚡ LDN+NY', start: 13, end: 17 }
+  ];
+  overlaps.forEach(o => {
+    const block = document.createElement('div');
+    block.className = 'session-block overlap';
+    block.style.left = (o.start / 24 * 100) + '%';
+    block.style.width = ((o.end - o.start) / 24 * 100) + '%';
+    block.style.zIndex = '1';
+    block.textContent = o.name;
+    track.appendChild(block);
+  });
+  
+  track.appendChild(cursor);
+  updateCursor();
+}
+
+function updateCursor(){
+  const now = new Date();
+  const utcHour = now.getUTCHours() + now.getUTCMinutes() / 60;
+  const percent = (utcHour / 24) * 100;
+  document.getElementById('sessionCursor').style.left = percent + '%';
+  
+  // Determine current session
+  let active = [];
+  sessions.forEach(s => {
+    if (utcHour >= s.start && utcHour < s.end) active.push(s.name);
+  });
+  let label = active.length ? active.join(' + ') : 'Closed';
+  if (utcHour >= 13 && utcHour < 17) label = '⚡ LONDON + NY (PRIME)';
+  else if (utcHour >= 8 && utcHour < 9) label = '⚡ TOKYO + LONDON OVERLAP';
+  document.getElementById('sessionNow').textContent = '🟢 NOW: ' + label + ' · UTC ' + Math.floor(utcHour) + 'h';
+}
+renderSessionsTrack();
+setInterval(updateCursor, 60000); // Update cursor every minute
+
+// ============ WORLD MAP ============
+const map = L.map('worldMap', {
+  center: [25, 10],
+  zoom: 2,
+  minZoom: 2,
+  maxZoom: 6,
+  worldCopyJump: true,
+  zoomControl: true,
+  attributionControl: true
+});
+
+// Dark tile layer (Carto Dark Matter - free, great for dark themes)
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap · © CARTO',
+  subdomains: 'abcd',
+  maxZoom: 19
+}).addTo(map);
+
+// Labels layer on top
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png', {
+  attribution: '',
+  subdomains: 'abcd',
+  maxZoom: 19
+}).addTo(map);
+
+function createMarker(type) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="map-marker ${type}"></div>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7]
+  });
+}
+
+// Static events (geopolitical hotspots + key financial capitals)
+const HOTSPOTS = [
+  // Geopolitical tensions (bullish gold)
+  { lat: 32.4279, lng: 53.6880, type: 'bull', title: 'Iran', desc: 'US-Iran tensions · Strait of Hormuz', impact: 'bull' },
+  { lat: 48.3794, lng: 31.1656, type: 'bull', title: 'Ukraine', desc: 'War zone · NATO-Russia proxy', impact: 'bull' },
+  { lat: 23.8103, lng: 90.4125, type: 'bull', title: 'Taiwan Strait', desc: 'China-Taiwan tensions', impact: 'bull' },
+  { lat: 31.5, lng: 34.75, type: 'bull', title: 'Israel-Gaza', desc: 'Middle East conflict', impact: 'bull' },
+  // Financial capitals (sessions)
+  { lat: 40.7128, lng: -74.0060, type: 'session', title: 'New York', desc: 'NYSE · NASDAQ · Fed', impact: 'neutral' },
+  { lat: 51.5074, lng: -0.1278, type: 'session', title: 'London', desc: 'LSE · Gold fixing', impact: 'neutral' },
+  { lat: 35.6762, lng: 139.6503, type: 'session', title: 'Tokyo', desc: 'TSE · BOJ', impact: 'neutral' },
+  { lat: 31.2304, lng: 121.4737, type: 'session', title: 'Shanghai', desc: 'SSE · PBoC · Gold demand', impact: 'neutral' },
+  { lat: 22.3193, lng: 114.1694, type: 'session', title: 'Hong Kong', desc: 'HKEX · Asia gateway', impact: 'neutral' },
+  { lat: 1.3521, lng: 103.8198, type: 'session', title: 'Singapore', desc: 'SGX · Forex hub', impact: 'neutral' },
+  // Economic events cities
+  { lat: 38.8977, lng: -77.0365, type: 'econ', title: 'Washington DC', desc: 'Fed · Treasury · White House', impact: 'neutral' },
+  { lat: 50.1109, lng: 8.6821, type: 'econ', title: 'Frankfurt', desc: 'ECB headquarters', impact: 'neutral' },
+  { lat: 46.2044, lng: 6.1432, type: 'econ', title: 'Geneva', desc: 'SNB · Gold trading', impact: 'neutral' }
+];
+
+HOTSPOTS.forEach(h => {
+  const marker = L.marker([h.lat, h.lng], { icon: createMarker(h.type) }).addTo(map);
+  const impactBadge = h.impact === 'bull' ? '<span class="popup-impact bull">Bullish Gold</span>' 
+    : h.impact === 'bear' ? '<span class="popup-impact bear">Bearish Gold</span>' 
+    : '<span class="popup-impact neutral">Neutral</span>';
+  marker.bindPopup(`
+    <div class="popup-title">${h.title}</div>
+    <div class="popup-desc">${h.desc}</div>
+    ${impactBadge}
+  `);
+});
+
+// ============ LIVE TV CHANNELS ============
+// Only officially free 24/7 YouTube streams
+const TV_CHANNELS = [
+  {
+    id: 'bloomberg',
+    name: 'Bloomberg TV',
+    description: 'US markets, Fed, finance 24/7 - Official Bloomberg channel',
+    embedUrl: 'https://www.youtube.com/embed/iEpJwprxDdk?autoplay=1&mute=1'
+  },
+  {
+    id: 'cnbc',
+    name: 'CNBC',
+    description: 'Global markets, stocks, crypto - CNBC live',
+    embedUrl: 'https://www.youtube.com/embed/9NyxcX3rhQs?autoplay=1&mute=1'
+  },
+  {
+    id: 'aljazeera',
+    name: 'Al Jazeera EN',
+    description: 'Global news & geopolitics 24/7',
+    embedUrl: 'https://www.youtube.com/embed/gCNeDWCI0vo?autoplay=1&mute=1'
+  },
+  {
+    id: 'france24',
+    name: 'France24 EN',
+    description: 'International news in English 24/7',
+    embedUrl: 'https://www.youtube.com/embed/h3MuIUNCCzI?autoplay=1&mute=1'
+  },
+  {
+    id: 'dwnews',
+    name: 'DW News',
+    description: 'German international news',
+    embedUrl: 'https://www.youtube.com/embed/pzzeak6X16o?autoplay=1&mute=1'
+  },
+  {
+    id: 'skynews',
+    name: 'Sky News',
+    description: 'UK & international breaking news',
+    embedUrl: 'https://www.youtube.com/embed/YDvsBbKfLPA?autoplay=1&mute=1'
+  }
+];
+
+let currentChannel = TV_CHANNELS[0];
+
+function renderChannels(){
+  const container = document.getElementById('tvChannels');
+  container.innerHTML = TV_CHANNELS.map(c => `
+    <div class="tv-channel ${c.id === currentChannel.id ? 'active' : ''}" onclick="switchChannel('${c.id}')">
+      ${c.name}
+    </div>
+  `).join('');
+}
+
+function switchChannel(id){
+  const channel = TV_CHANNELS.find(c => c.id === id);
+  if (!channel) return;
+  currentChannel = channel;
+  document.getElementById('tvEmbed').innerHTML = `
+    <iframe src="${channel.embedUrl}" 
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+      allowfullscreen></iframe>
+  `;
+  document.getElementById('tvInfo').textContent = '📺 ' + channel.description + ' · Muted by default';
+  renderChannels();
+}
+
+renderChannels();
+switchChannel('bloomberg');
+
+// ============ NEWS TICKER + GRID ============
+async function fetchNews(){
+  try {
+    const res = await fetch(API + '/api/all');
+    const data = await res.json();
+    const news = data.news || [];
+    
+    renderTicker(news);
+    renderNewsGrid(news);
+  } catch(e) {
+    console.error('News fetch error:', e);
+  }
+}
+
+function renderTicker(news){
+  const track = document.getElementById('tickerTrack');
+  if (!news.length) return;
+  
+  // Filter for highest impact first, then repeat for infinite scroll
+  const priority = [...news.filter(n => n.impact === 'high'), ...news.filter(n => n.impact === 'medium')].slice(0, 20);
+  if (!priority.length) return;
+  
+  const items = priority.map(n => `
+    <div class="ticker-item">
+      <span class="ticker-source">◆ ${n.source}</span>
+      <span class="ticker-text">${n.title.substring(0, 120)}${n.title.length > 120 ? '...' : ''}</span>
+      <span class="ticker-sep">|</span>
+    </div>
+  `).join('');
+  // Duplicate for seamless infinite scroll
+  track.innerHTML = items + items;
+}
+
+function timeAgo(date){
+  if (!date) return '--';
+  const mins = Math.floor((Date.now() - new Date(date)) / 60000);
+  if (mins < 1) return 'instant';
+  if (mins < 60) return mins + 'm';
+  const h = Math.floor(mins / 60);
+  if (h < 24) return h + 'h';
+  return Math.floor(h / 24) + 'j';
+}
+
+function renderNewsGrid(news){
+  const grid = document.getElementById('newsGrid');
+  if (!news.length){
+    grid.innerHTML = '<div class="loading">No news available</div>';
+    return;
+  }
+  // Top 12 news
+  const topNews = news.slice(0, 12);
+  grid.innerHTML = topNews.map(n => {
+    const isBreaking = n.impact === 'high' && n.time && (Date.now() - new Date(n.time)) < 3600000;
+    return `
+      <div class="news-card ${isBreaking ? 'breaking' : ''}" onclick="${n.link ? `window.open('${n.link}','_blank')` : ''}">
+        <div class="news-head">
+          <span class="news-source">◆ ${n.source}</span>
+          <span class="news-badge ${isBreaking ? 'breaking' : n.impact}">${isBreaking ? 'BREAKING' : n.impact.toUpperCase()}</span>
+          <span class="news-time">${timeAgo(n.time)}</span>
+        </div>
+        <div class="news-title">${n.title}</div>
+        ${n.desc ? `<div class="news-desc">${n.desc.substring(0, 140)}${n.desc.length > 140 ? '...' : ''}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+fetchNews();
+setInterval(fetchNews, 60000); // Refresh news every 60 sec
+</script>
+</body>
+</html>
