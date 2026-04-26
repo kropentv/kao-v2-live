@@ -1,7 +1,7 @@
 {
   "name": "kao-v2-live",
-  "version": "1.0.0",
-  "description": "Kao V2 Live Gold Trading Intelligence",
+  "version": "2.0.0",
+  "description": "Kao V2 V2 with PostgreSQL + consistency alerts",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,7 +12,8 @@
     "node-fetch": "^2.7.0",
     "rss-parser": "^3.13.0",
     "node-telegram-bot-api": "^0.64.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "pg": "^8.11.3"
   },
   "engines": {
     "node": ">=18"
