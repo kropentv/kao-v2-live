@@ -40,9 +40,16 @@ async function initDatabase() {
       opened_at TIMESTAMP, closed_at TIMESTAMP, price_close DECIMAL(15,5),
       profit DECIMAL(10,2), commission DECIMAL(10,2), swap DECIMAL(10,2),
       net_profit DECIMAL(10,2), verdict VARCHAR(20), score INTEGER,
-      advice_json TEXT, status VARCHAR(10) DEFAULT 'open',
+      advice_json TEXT, status VARCHAR(20) DEFAULT 'open',
       created_at TIMESTAMP DEFAULT NOW()
     )`);
+    // Migration: enlarge status column if existing table has VARCHAR(10)
+    try {
+      await pool.query(`ALTER TABLE trades ALTER COLUMN status TYPE VARCHAR(20)`);
+      console.log('✓ Status column enlarged to VARCHAR(20)');
+    } catch (e) {
+      // Already correct size or other minor error - safe to ignore
+    }
     await pool.query(`CREATE TABLE IF NOT EXISTS accounts (
       account VARCHAR(50) PRIMARY KEY, broker VARCHAR(100),
       balance DECIMAL(15,2), equity DECIMAL(15,2), leverage INTEGER,
@@ -1673,7 +1680,7 @@ app.get('/api/trade/cleanup', async (req, res) => {
   if (!pool) return res.json({ error: 'DB not available' });
   try {
     const r = await pool.query(
-      `UPDATE trades SET status='closed_unknown', closed_at=NOW(), net_profit=0
+      `UPDATE trades SET status='cleaned', closed_at=NOW(), net_profit=0
        WHERE status='open' RETURNING ticket, symbol`
     );
     cache.trades = [];
@@ -1785,7 +1792,7 @@ app.post('/api/trade/snapshot', checkAuth, async (req, res) => {
           // EA's reconciliation should have already sent the actual close
           // If we still see it here = was closed but never reported
           await pool.query(
-            `UPDATE trades SET status='closed_unknown', closed_at=NOW(),
+            `UPDATE trades SET status='cleaned', closed_at=NOW(),
              net_profit=0, profit=0, commission=0, swap=0
              WHERE ticket=$1 AND status='open'`,
             [ghost.ticket]
