@@ -1667,6 +1667,22 @@ app.get('/api/confluences', (req, res) => res.json({
 }));
 app.get('/api/refresh', async (req, res) => { await refreshAll(); res.json({ ok: true }); });
 
+// v4.9: Manual cleanup endpoint - mark all 'open' trades as closed_unknown
+// Use this if you need to force a clean state from dashboard
+app.get('/api/trade/cleanup', async (req, res) => {
+  if (!pool) return res.json({ error: 'DB not available' });
+  try {
+    const r = await pool.query(
+      `UPDATE trades SET status='closed_unknown', closed_at=NOW(), net_profit=0
+       WHERE status='open' RETURNING ticket, symbol`
+    );
+    cache.trades = [];
+    res.json({ ok: true, cleaned: r.rows.length, trades: r.rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // v3: Receive live broker price from EA
 app.post('/api/price', checkAuth, (req, res) => {
   const { symbol, bid, ask, mid } = req.body;
@@ -1736,6 +1752,72 @@ app.post('/api/trade/close', checkAuth, async (req, res) => {
   const alert = await checkConsistencyAlert(trade.account);
   if (alert) await sendConsistencyAlert(trade.account, alert);
   res.json({ ok: true });
+});
+
+// v4.9: Snapshot reconciliation endpoint
+// EA sends list of currently OPEN positions
+// Server detects "ghost trades" (in DB as open but not in MT5) and marks them as closed
+app.post('/api/trade/snapshot', checkAuth, async (req, res) => {
+  const { account, open_tickets, count } = req.body;
+  console.log(`📸 Snapshot from ${account}: ${count} positions open in MT5`);
+  
+  if (!account || !Array.isArray(open_tickets)) {
+    return res.status(400).json({ error: 'Invalid snapshot' });
+  }
+  
+  const openTicketsSet = new Set(open_tickets.map(t => String(t)));
+  
+  // Find ghost trades: in DB as 'open' for this account, but ticket not in current MT5 open list
+  let ghostsFound = [];
+  if (pool) {
+    try {
+      const r = await pool.query(
+        `SELECT * FROM trades WHERE account = $1 AND status = 'open'`,
+        [String(account)]
+      );
+      ghostsFound = r.rows.filter(t => !openTicketsSet.has(String(t.ticket)));
+      
+      if (ghostsFound.length > 0) {
+        console.log(`👻 Found ${ghostsFound.length} ghost trade(s) to clean up`);
+        
+        for (const ghost of ghostsFound) {
+          // Mark as closed_unknown (PC was off, exact P&L unknown)
+          // EA's reconciliation should have already sent the actual close
+          // If we still see it here = was closed but never reported
+          await pool.query(
+            `UPDATE trades SET status='closed_unknown', closed_at=NOW(),
+             net_profit=0, profit=0, commission=0, swap=0
+             WHERE ticket=$1 AND status='open'`,
+            [ghost.ticket]
+          );
+          console.log(`  ✓ Closed ghost ticket ${ghost.ticket} (${ghost.symbol})`);
+        }
+      }
+    } catch (e) {
+      console.error('Snapshot DB error:', e.message);
+    }
+  }
+  
+  // Also clean cache
+  if (ghostsFound.length > 0) {
+    const ghostTickets = new Set(ghostsFound.map(g => g.ticket));
+    cache.trades = cache.trades.filter(t => !ghostTickets.has(t.ticket));
+  }
+  
+  // Notify Telegram if ghost trades were found
+  if (ghostsFound.length > 0 && bot && TELEGRAM_CHAT_ID) {
+    let msg = `🔄 *KAO V2 · RECONCILIATION*\n\n`;
+    msg += `${ghostsFound.length} trade(s) fantôme(s) nettoyé(s)\n`;
+    msg += `_Probablement fermés pendant que ton PC était éteint._\n`;
+    msg += `_Vérifie ton historique broker pour les vrais P&L._`;
+    try { await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' }); } catch (e) {}
+  }
+  
+  res.json({ 
+    ok: true, 
+    open_in_mt5: count, 
+    ghosts_cleaned: ghostsFound.length 
+  });
 });
 
 app.get('/api/telegram/test', async (req, res) => {

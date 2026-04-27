@@ -309,6 +309,7 @@
           <div class="trade-stat-label">Win Rate</div>
           <div class="trade-stat-val" id="winRate">--</div>
         </div>
+        <button onclick="cleanupGhostTrades()" style="background:rgba(255,176,32,.15);border:1px solid var(--amber);color:var(--amber);padding:6px 12px;font-size:9px;letter-spacing:1.5px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700;align-self:center;margin-left:auto" title="Force cleanup des trades fantômes (PC éteint pendant clôture)">🔄 Reconcile</button>
       </div>
     </div>
     
@@ -412,6 +413,20 @@ setInterval(updateClock, 1000); updateClock();
 async function refreshNow(){
   try { await fetch(API + '/api/refresh'); setTimeout(fetchAll, 1500); }
   catch(e){ setStatus('err', '❌ Échec'); }
+}
+
+async function cleanupGhostTrades(){
+  if(!confirm('Force le nettoyage des trades fantômes ?\n\nCette action marque comme "fermés" tous les trades actuellement marqués "open" sur le serveur.\n\nUtilise cette option si tu vois des trades qui devraient être fermés (PC éteint pendant la fermeture).')) return;
+  try {
+    const res = await fetch(API + '/api/trade/cleanup');
+    const data = await res.json();
+    if(data.ok){
+      alert('✅ ' + data.cleaned + ' trade(s) nettoyé(s)');
+      fetchAll();
+    } else {
+      alert('❌ Erreur : ' + (data.error || 'inconnue'));
+    }
+  } catch(e){ alert('❌ ' + e.message); }
 }
 
 function setStatus(type, msg){
