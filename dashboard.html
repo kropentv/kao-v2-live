@@ -213,6 +213,7 @@
 </style>
 </head>
 <body>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <div class="wrap">
 
   <div class="config-bar">
@@ -271,15 +272,15 @@
   </div>
 
   <!-- NEW V4 · SMART CONFLUENCES ENGINE -->
-  <div id="smartPanel" class="setups-panel" style="display:none;background:linear-gradient(135deg,rgba(169,112,255,.06),rgba(14,14,16,.4));border-color:rgba(169,112,255,.3)">
+  <div id="smartPanel" class="setups-panel" style="background:linear-gradient(135deg,rgba(169,112,255,.06),rgba(14,14,16,.4));border-color:rgba(169,112,255,.3)">
     <div class="setups-header">
       <div>
         <div class="setups-title" style="color:#F5C842">🧠 Smart Confluences Engine</div>
-        <div class="panel-sub">Multi-timeframe · RSI M1/M5/M15/H1 + Pivots + EMA H1</div>
+        <div class="panel-sub">Multi-timeframe · RSI M1/M5/M15/H1 + MACD + Stoch + BB + VWAP + Order Blocks + FVG + Divergences</div>
       </div>
-      <div id="marketDataStatus" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--bone-dim)">--</div>
+      <div id="marketDataStatus" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--bone-dim)">⏳ En attente données EA...</div>
     </div>
-    <div id="confluencesGrid" class="setups-grid"></div>
+    <div id="confluencesGrid" class="setups-grid"><div class="loading">⏳ En attente du premier market_data de ton EA MT5...<br><br>Si tu vois ce message après 1 min :<br>• Vérifie que l'EA tourne (smiley 🙂 sur chart)<br>• Vérifie les logs MT5 onglet Experts<br>• Vérifie que le symbole Gold est reconnu</div></div>
     <div id="marketDataPanel" style="margin-top:14px;padding:12px 16px;background:rgba(0,0,0,.3);border-radius:2px;display:none">
       <div style="font-size:9px;letter-spacing:2px;color:var(--bone-dim);text-transform:uppercase;margin-bottom:8px">◆ Market Data Live (from EA)</div>
       <div id="marketDataRow" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px"></div>
@@ -288,6 +289,69 @@
 
   <!-- NEW V3 · MULTI ACCOUNTS -->
   <div class="accounts-grid" id="accountsGrid"></div>
+
+  <!-- NEW V5.0 · PERFORMANCE ANALYTICS -->
+  <div id="analyticsPanel" style="margin-bottom:16px">
+    <!-- Discipline Status Bar -->
+    <div id="disciplinePanel" style="background:linear-gradient(135deg,rgba(91,168,114,.06),var(--ink));border:1px solid var(--jade-deep);border-radius:2px;padding:14px 18px;margin-bottom:12px;display:flex;align-items:center;gap:14px">
+      <div id="disciplineIcon" style="font-size:24px">🛡️</div>
+      <div style="flex:1">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--gold);text-transform:uppercase;margin-bottom:2px;font-weight:700">Discipline Tracker</div>
+        <div id="disciplineStatus" style="font-size:13px;color:var(--bone)">Aucune violation aujourd'hui · Discipline parfaite 🎯</div>
+      </div>
+      <div id="disciplineCounter" style="font-family:'Fraunces',serif;font-size:32px;font-weight:900;font-style:italic;color:var(--jade)">0</div>
+    </div>
+    
+    <!-- Equity Curve + Stats Setups -->
+    <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:12px">
+      <!-- Equity Curve -->
+      <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:16px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed var(--smoke)">
+          <div>
+            <div style="font-family:'Fraunces',serif;font-size:14px;font-weight:700;font-style:italic;color:var(--gold-bright)">📈 Equity Curve</div>
+            <div style="font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase">P&L cumulé</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button onclick="loadEquityCurve(7)" id="eq7" class="period-btn active" style="padding:4px 10px;background:var(--gold);color:var(--black);border:none;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700">7J</button>
+            <button onclick="loadEquityCurve(30)" id="eq30" class="period-btn" style="padding:4px 10px;background:var(--ink);color:var(--bone-dim);border:1px solid var(--smoke);font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700">30J</button>
+            <button onclick="loadEquityCurve(90)" id="eq90" class="period-btn" style="padding:4px 10px;background:var(--ink);color:var(--bone-dim);border:1px solid var(--smoke);font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700">90J</button>
+          </div>
+        </div>
+        <canvas id="equityChart" style="max-height:240px"></canvas>
+      </div>
+      
+      <!-- Stats by Setup -->
+      <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:16px 20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed var(--smoke)">
+          <div>
+            <div style="font-family:'Fraunces',serif;font-size:14px;font-weight:700;font-style:italic;color:var(--gold-bright)">🏆 Top Setups</div>
+            <div style="font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase">Win rate par grade</div>
+          </div>
+        </div>
+        <div id="setupsStats" style="display:flex;flex-direction:column;gap:8px;max-height:240px;overflow-y:auto">
+          <div class="loading">Chargement...</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Heatmap -->
+    <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:16px 20px;margin-top:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed var(--smoke)">
+        <div>
+          <div style="font-family:'Fraunces',serif;font-size:14px;font-weight:700;font-style:italic;color:var(--gold-bright)">⏰ Performance Heatmap</div>
+          <div style="font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase">Quand tu performes le mieux</div>
+        </div>
+        <div style="display:flex;gap:14px;font-size:9px;color:var(--bone-dim);letter-spacing:1px">
+          <div>🟢 Profit</div>
+          <div>🔴 Perte</div>
+          <div>⚪ Pas de trade</div>
+        </div>
+      </div>
+      <div id="heatmapContainer" style="overflow-x:auto">
+        <div class="loading">Chargement...</div>
+      </div>
+    </div>
+  </div>
 
   <!-- LIVE TRADES SECTION (NEW) -->
   <div class="trades-panel">
@@ -460,6 +524,9 @@ async function fetchAll(){
     renderMatrix(data.matrix || {});
     renderTrades(data.trades || [], data.advices || [], data.closedTrades || []);
     
+    // V5.0: Discipline + Stats + Equity + Heatmap (less frequent calls)
+    renderDiscipline(data.discipline);
+    
     const last = data.lastUpdate ? new Date(data.lastUpdate).toLocaleTimeString('fr-FR') : '--';
     setStatus('ok', '🟢 Connecté · MAJ ' + last);
   } catch(e){
@@ -470,28 +537,47 @@ async function fetchAll(){
 // ============ V4 · SMART CONFLUENCES ============
 function renderNewsGuard(ng){
   const banner = document.getElementById('newsGuardBanner');
-  if (!ng || ng.status === 'NORMAL') {
-    // Hide banner OR show "next event" countdown if available
-    if (ng && ng.nextEvent) {
-      banner.style.display = 'block';
+  // V5.1: Always visible
+  banner.style.display = 'block';
+  
+  if (!ng) {
+    banner.style.background = 'linear-gradient(135deg,rgba(168,164,154,.06),var(--ink))';
+    banner.style.borderColor = 'var(--smoke)';
+    document.getElementById('newsGuardContent').innerHTML = `
+      <div style="font-size:18px">⏳</div>
+      <div style="flex:1">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--bone-dim);text-transform:uppercase;margin-bottom:2px">News Guard</div>
+        <div style="font-size:13px;color:var(--bone-dim)">En attente données du serveur...</div>
+      </div>`;
+    return;
+  }
+  
+  if (ng.status === 'NORMAL') {
+    if (ng.nextEvent) {
       banner.style.background = 'linear-gradient(135deg,rgba(91,168,114,.06),var(--ink))';
       banner.style.borderColor = 'var(--jade-deep)';
       const countdown = computeCountdown(ng.nextEvent.dateTime);
       document.getElementById('newsGuardContent').innerHTML = `
         <div style="font-size:18px">🟢</div>
         <div style="flex:1">
-          <div style="font-size:9px;letter-spacing:2px;color:var(--jade);text-transform:uppercase;margin-bottom:2px">NORMAL · Trading actif</div>
+          <div style="font-size:9px;letter-spacing:2px;color:var(--jade);text-transform:uppercase;margin-bottom:2px">News Guard · NORMAL · Trading actif</div>
           <div style="font-size:13px;color:var(--bone)">Prochaine news high : <strong style="color:var(--gold-bright)">${ng.nextEvent.event}</strong> à ${ng.nextEvent.time}</div>
           <div style="font-size:10px;color:var(--bone-dim);margin-top:2px">${countdown}</div>
-        </div>
-      `;
+        </div>`;
     } else {
-      banner.style.display = 'none';
+      // Status NORMAL sans events programmés
+      banner.style.background = 'linear-gradient(135deg,rgba(91,168,114,.06),var(--ink))';
+      banner.style.borderColor = 'var(--jade-deep)';
+      document.getElementById('newsGuardContent').innerHTML = `
+        <div style="font-size:18px">🟢</div>
+        <div style="flex:1">
+          <div style="font-size:9px;letter-spacing:2px;color:var(--jade);text-transform:uppercase;margin-bottom:2px">News Guard · NORMAL · Trading libre</div>
+          <div style="font-size:13px;color:var(--bone)">Aucune news high impact à venir aujourd'hui</div>
+          <div style="font-size:10px;color:var(--bone-dim);margin-top:2px">Reste vigilant aux Trump posts et événements imprévus</div>
+        </div>`;
     }
     return;
   }
-  
-  banner.style.display = 'block';
   let cfg = {};
   if (ng.status === 'PRE_NEWS') {
     cfg = {
@@ -554,11 +640,14 @@ function computeCountdown(eventDateString){
 
 function renderDayLevels(md, currentPrice){
   const panel = document.getElementById('dayLevelsPanel');
+  // V5.1: Always visible
+  panel.style.display = 'block';
+  
   if (!md || !md.pdh) {
-    panel.style.display = 'none';
+    document.getElementById('dayLevelsCurrent').innerHTML = '<span style="color:var(--rust)">●</span> En attente EA';
+    document.getElementById('dayLevelsGrid').innerHTML = '<div class="loading" style="grid-column:1/-1">⏳ En attente données EA · PDH/PDL/Today H-L apparaîtront dès que l\'EA enverra du market_data</div>';
     return;
   }
-  panel.style.display = 'block';
   
   if (currentPrice) {
     document.getElementById('dayLevelsCurrent').textContent = `Live ${currentPrice.toFixed(2)}`;
@@ -606,12 +695,15 @@ function renderSmartConfluences(confluences, marketData, marketDataTime){
   const mdRow = document.getElementById('marketDataRow');
   const mdStatus = document.getElementById('marketDataStatus');
   
-  // Show panel only if we have market data
+  // V5.1: Panel always visible, just show empty state if no data
+  panel.style.display = 'block';
+  
   if (!marketData || !marketData.mid) {
-    panel.style.display = 'none';
+    mdStatus.innerHTML = '<span style="color:var(--rust)">●</span> En attente données EA...';
+    grid.innerHTML = '<div class="loading">⏳ En attente du premier market_data de ton EA MT5...<br><br>Si tu vois ce message après 1 min :<br>• Vérifie que l\'EA tourne (smiley 🙂 sur chart)<br>• Vérifie les logs MT5 onglet Experts<br>• Vérifie que le symbole Gold est reconnu</div>';
+    mdPanel.style.display = 'none';
     return;
   }
-  panel.style.display = 'block';
   
   // Status
   const age = marketDataTime ? Math.floor((Date.now() - new Date(marketDataTime).getTime()) / 1000) : 999;
@@ -621,17 +713,93 @@ function renderSmartConfluences(confluences, marketData, marketDataTime){
   
   // Market data row
   mdPanel.style.display = 'block';
-  mdRow.innerHTML = `
-    <div><span style="color:var(--bone-dim);font-size:9px">PRICE</span><br><span style="color:var(--gold-bright);font-weight:700;font-size:13px">${marketData.mid?.toFixed(2) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">RSI M1</span><br><span style="color:${getRsiColor(marketData.rsi_m1)};font-weight:700;font-size:13px">${marketData.rsi_m1?.toFixed(1) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">RSI M5</span><br><span style="color:${getRsiColor(marketData.rsi_m5)};font-weight:700;font-size:13px">${marketData.rsi_m5?.toFixed(1) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">RSI M15</span><br><span style="color:${getRsiColor(marketData.rsi_m15)};font-weight:700;font-size:13px">${marketData.rsi_m15?.toFixed(1) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">RSI H1</span><br><span style="color:${getRsiColor(marketData.rsi_h1)};font-weight:700;font-size:13px">${marketData.rsi_h1?.toFixed(1) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">EMA50 H1</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.ema50_h1?.toFixed(2) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">EMA200 H1</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.ema200_h1?.toFixed(2) || '--'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">TREND H1</span><br><span style="color:${marketData.ema50_h1 > marketData.ema200_h1 ? 'var(--jade)' : 'var(--rust)'};font-weight:700;font-size:13px">${marketData.ema50_h1 > marketData.ema200_h1 ? '↑ UP' : '↓ DOWN'}</span></div>
-    <div><span style="color:var(--bone-dim);font-size:9px">VOLUME M5</span><br><span style="color:${marketData.volume_huge ? 'var(--rust)' : marketData.volume_spike ? 'var(--amber)' : 'var(--bone)'};font-weight:700;font-size:13px">${marketData.volume_ratio ? marketData.volume_ratio.toFixed(1) + 'x' : '--'} ${marketData.volume_huge ? '💥' : marketData.volume_spike ? '📊' : ''}</span></div>
-  `;
+  // V5.1: Full indicators grid - all what EA sends
+  const trendUp = marketData.ema50_h1 > marketData.ema200_h1;
+  const aboveVwap = marketData.above_vwap;
+  
+  let parts = [];
+  // Row 1: Price + RSI
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">PRICE</span><br><span style="color:var(--gold-bright);font-weight:700;font-size:14px">${marketData.mid?.toFixed(2) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">RSI M1</span><br><span style="color:${getRsiColor(marketData.rsi_m1)};font-weight:700;font-size:13px">${marketData.rsi_m1?.toFixed(1) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">RSI M5</span><br><span style="color:${getRsiColor(marketData.rsi_m5)};font-weight:700;font-size:13px">${marketData.rsi_m5?.toFixed(1) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">RSI M15</span><br><span style="color:${getRsiColor(marketData.rsi_m15)};font-weight:700;font-size:13px">${marketData.rsi_m15?.toFixed(1) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">RSI H1</span><br><span style="color:${getRsiColor(marketData.rsi_h1)};font-weight:700;font-size:13px">${marketData.rsi_h1?.toFixed(1) || '--'}</span></div>`);
+  
+  // Row 2: EMA + Trend
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">EMA50 H1</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.ema50_h1?.toFixed(2) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">EMA200 H1</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.ema200_h1?.toFixed(2) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">TREND H1</span><br><span style="color:${trendUp ? 'var(--jade)' : 'var(--rust)'};font-weight:700;font-size:13px">${trendUp ? '↑ UP' : '↓ DOWN'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">EMA50 M15</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.ema50_m15?.toFixed(2) || '--'}</span></div>`);
+  
+  // Row 3: Volume + ATR
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">VOLUME M5</span><br><span style="color:${marketData.volume_huge ? 'var(--rust)' : marketData.volume_spike ? 'var(--amber)' : 'var(--bone)'};font-weight:700;font-size:13px">${marketData.volume_ratio ? marketData.volume_ratio.toFixed(1) + 'x' : '--'} ${marketData.volume_huge ? '💥' : marketData.volume_spike ? '📊' : ''}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">ATR M5</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.atr_m5?.toFixed(2) || '--'}</span></div>`);
+  parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">ATR M15</span><br><span style="color:var(--bone);font-weight:700;font-size:13px">${marketData.atr_m15?.toFixed(2) || '--'}</span></div>`);
+  
+  // Row 4: VWAP
+  if (marketData.vwap > 0) {
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">VWAP</span><br><span style="color:var(--gold);font-weight:700;font-size:13px">${marketData.vwap?.toFixed(2)}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">vs VWAP</span><br><span style="color:${aboveVwap ? 'var(--jade)' : 'var(--rust)'};font-weight:700;font-size:13px">${aboveVwap ? '⬆ ABOVE' : '⬇ BELOW'} ${marketData.vwap_diff > 0 ? '+' : ''}${marketData.vwap_diff?.toFixed(2)}</span></div>`);
+  }
+  
+  // Row 5: MACD M5
+  if (marketData.macd_m5 !== undefined) {
+    const macdM5Bull = marketData.macd_m5 > marketData.macd_m5_sig;
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">MACD M5</span><br><span style="color:${macdM5Bull ? 'var(--jade)' : 'var(--rust)'};font-weight:700;font-size:13px">${macdM5Bull ? '↑' : '↓'} ${marketData.macd_m5?.toFixed(3)}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">MACD CROSS</span><br><span style="color:${marketData.macd_bull_cross ? 'var(--jade)' : marketData.macd_bear_cross ? 'var(--rust)' : 'var(--bone-dim)'};font-weight:700;font-size:13px">${marketData.macd_bull_cross ? '🟢 BULL' : marketData.macd_bear_cross ? '🔴 BEAR' : '—'}</span></div>`);
+  }
+  
+  // Row 6: Stochastic
+  if (marketData.stoch_m5 !== undefined) {
+    const stochColor = marketData.stoch_m5 >= 80 ? 'var(--rust)' : marketData.stoch_m5 <= 20 ? 'var(--jade)' : 'var(--bone)';
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">STOCH M5</span><br><span style="color:${stochColor};font-weight:700;font-size:13px">${marketData.stoch_m5?.toFixed(0) || '--'}</span></div>`);
+    const stochM15Color = marketData.stoch_m15 >= 80 ? 'var(--rust)' : marketData.stoch_m15 <= 20 ? 'var(--jade)' : 'var(--bone)';
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">STOCH M15</span><br><span style="color:${stochM15Color};font-weight:700;font-size:13px">${marketData.stoch_m15?.toFixed(0) || '--'}</span></div>`);
+  }
+  
+  // Row 7: Bollinger Bands
+  if (marketData.bb_m5_up !== undefined) {
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">BB UP M5</span><br><span style="color:var(--rust);font-weight:700;font-size:13px">${marketData.bb_m5_up?.toFixed(2) || '--'}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">BB LOW M5</span><br><span style="color:var(--jade);font-weight:700;font-size:13px">${marketData.bb_m5_low?.toFixed(2) || '--'}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">BB STATUS</span><br><span style="color:${marketData.bb_squeeze_m5 ? 'var(--gold-bright)' : marketData.price_above_bb_up ? 'var(--rust)' : marketData.price_below_bb_low ? 'var(--jade)' : 'var(--bone)'};font-weight:700;font-size:12px">${marketData.bb_squeeze_m5 ? '🎯 SQUEEZE' : marketData.price_above_bb_up ? '⬆ OUTSIDE UP' : marketData.price_below_bb_low ? '⬇ OUTSIDE DOWN' : '◇ INSIDE'}</span></div>`);
+  }
+  
+  // Row 8: Day levels
+  if (marketData.pdh > 0) {
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">PDH</span><br><span style="color:var(--rust);font-weight:700;font-size:13px">${marketData.pdh?.toFixed(2)}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">PDL</span><br><span style="color:var(--jade);font-weight:700;font-size:13px">${marketData.pdl?.toFixed(2)}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">TODAY HIGH</span><br><span style="color:var(--rust);font-weight:700;font-size:13px">${marketData.today_high?.toFixed(2) || '--'}</span></div>`);
+    parts.push(`<div><span style="color:var(--bone-dim);font-size:9px">TODAY LOW</span><br><span style="color:var(--jade);font-weight:700;font-size:13px">${marketData.today_low?.toFixed(2) || '--'}</span></div>`);
+  }
+  
+  // Row 9: SMC patterns active flags
+  const activePatterns = [];
+  if (marketData.sweep_high) activePatterns.push('🎯 SWEEP HIGH');
+  if (marketData.sweep_low) activePatterns.push('🎯 SWEEP LOW');
+  if (marketData.bos_bullish) activePatterns.push('🔺 BOS BULL');
+  if (marketData.bos_bearish) activePatterns.push('🔻 BOS BEAR');
+  if (marketData.choch_bullish) activePatterns.push('🔁 CHoCH BULL');
+  if (marketData.choch_bearish) activePatterns.push('🔁 CHoCH BEAR');
+  if (marketData.near_ob_bull) activePatterns.push('📦 OB BULL');
+  if (marketData.near_ob_bear) activePatterns.push('📦 OB BEAR');
+  if (marketData.in_fvg_bull) activePatterns.push('🪞 FVG BULL');
+  if (marketData.in_fvg_bear) activePatterns.push('🪞 FVG BEAR');
+  if (marketData.rsi_bull_div) activePatterns.push('📊 DIV BULL');
+  if (marketData.rsi_bear_div) activePatterns.push('📊 DIV BEAR');
+  if (marketData.john_wick_bull) activePatterns.push('💀 JW BULL');
+  if (marketData.john_wick_bear) activePatterns.push('💀 JW BEAR');
+  if (marketData.is_pin_bull) activePatterns.push('🟢 PIN BULL');
+  if (marketData.is_pin_bear) activePatterns.push('🔴 PIN BEAR');
+  if (marketData.three_soldiers) activePatterns.push('⚔️ 3 SOLDIERS');
+  if (marketData.three_crows) activePatterns.push('⚔️ 3 CROWS');
+  if (marketData.outside_bar) activePatterns.push('📦 OUTSIDE');
+  if (marketData.inside_bar) activePatterns.push('◇ INSIDE');
+  
+  if (activePatterns.length > 0) {
+    parts.push(`<div style="grid-column:span 6"><span style="color:var(--bone-dim);font-size:9px">PATTERNS ACTIFS</span><br><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px">${activePatterns.map(p => `<span style="font-size:10px;padding:2px 6px;background:rgba(212,164,55,.15);color:var(--gold);border-radius:2px;font-weight:700">${p}</span>`).join('')}</div></div>`);
+  }
+  
+  mdRow.innerHTML = parts.join('');
   
   // Confluences
   if (!confluences || !confluences.length) {
@@ -1018,17 +1186,62 @@ function renderTrump(posts){
 function renderCal(events){
   const c = document.getElementById('calList');
   if(!events.length){ c.innerHTML = '<div class="loading">Aucun event</div>'; return; }
-  c.innerHTML = events.map(e => `
-    <div class="cal-item ${e.impact}">
-      <div class="cal-time">${e.time}</div>
-      <div>
-        <div class="cal-event">${e.event}</div>
-        <div class="cal-event-sub">${e.sub || ''}</div>
+  
+  // Sort: upcoming first
+  const now = Date.now();
+  const enriched = events.map(e => {
+    const eventDate = e.rawDate ? new Date(e.rawDate) : null;
+    const minsUntil = eventDate ? Math.round((eventDate - now) / 60000) : null;
+    return { ...e, minsUntil };
+  });
+  // Show upcoming first (closest), then past
+  enriched.sort((a, b) => {
+    if (a.minsUntil === null) return 1;
+    if (b.minsUntil === null) return -1;
+    // Upcoming events first
+    if (a.minsUntil >= 0 && b.minsUntil < 0) return -1;
+    if (a.minsUntil < 0 && b.minsUntil >= 0) return 1;
+    return Math.abs(a.minsUntil) - Math.abs(b.minsUntil);
+  });
+  
+  c.innerHTML = enriched.map(e => {
+    let countdown = '';
+    let countdownClass = '';
+    if (e.minsUntil !== null) {
+      if (e.minsUntil > 60) {
+        countdown = `Dans ${Math.floor(e.minsUntil/60)}h${e.minsUntil%60}m`;
+        countdownClass = 'color:var(--bone-dim)';
+      } else if (e.minsUntil > 30) {
+        countdown = `Dans ${e.minsUntil}min`;
+        countdownClass = 'color:var(--amber)';
+      } else if (e.minsUntil > 0) {
+        countdown = `⏰ ${e.minsUntil}min !`;
+        countdownClass = 'color:var(--rust);font-weight:700;animation:pulse 1.5s infinite';
+      } else if (e.minsUntil > -60) {
+        countdown = `Il y a ${-e.minsUntil}m`;
+        countdownClass = 'color:var(--bone-dim);opacity:.6';
+      } else {
+        countdown = 'passé';
+        countdownClass = 'color:var(--bone-dim);opacity:.4';
+      }
+    }
+    
+    const isCritical = e.isCritical;
+    const isImmiment = e.minsUntil !== null && e.minsUntil > 0 && e.minsUntil <= 30;
+    const cardStyle = isImmiment ? 'border-left:4px solid var(--rust);box-shadow:0 0 12px rgba(224,72,53,.3)' : '';
+    
+    return `
+      <div class="cal-item ${e.impact}" style="${cardStyle}">
+        <div class="cal-time">${e.time}</div>
+        <div>
+          <div class="cal-event">${isCritical ? '🔥 ' : ''}${e.event}</div>
+          <div class="cal-event-sub">${e.sub || ''} · <span style="${countdownClass}">${countdown}</span></div>
+        </div>
+        <div class="cal-impact ${e.impact}">${e.impact === 'high' ? '●●●' : e.impact === 'medium' ? '●●' : '●'}</div>
+        ${e.warn ? '<div class="cal-warn">NO TRADE</div>' : '<div></div>'}
       </div>
-      <div class="cal-impact ${e.impact}">${e.impact === 'high' ? '●●●' : e.impact === 'medium' ? '●●' : '●'}</div>
-      ${e.warn ? '<div class="cal-warn">NO TRADE</div>' : '<div></div>'}
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 
 function renderMatrix(m){
@@ -1045,8 +1258,161 @@ function renderMatrix(m){
   document.getElementById('mReco').textContent = m.reco || '--';
 }
 
+// ============ V5.0 · DISCIPLINE TRACKER ============
+function renderDiscipline(discipline){
+  if (!discipline) return;
+  const violations = discipline.violations || {};
+  const total = Object.values(violations).reduce((sum, v) => sum + (v || 0), 0);
+  const counterEl = document.getElementById('disciplineCounter');
+  const statusEl = document.getElementById('disciplineStatus');
+  const iconEl = document.getElementById('disciplineIcon');
+  const panel = document.getElementById('disciplinePanel');
+  if (!counterEl) return;
+  
+  counterEl.textContent = total;
+  
+  if (total === 0) {
+    counterEl.style.color = 'var(--jade)';
+    iconEl.textContent = '🛡️';
+    statusEl.textContent = "Aucune violation aujourd'hui · Discipline parfaite 🎯";
+    panel.style.borderColor = 'var(--jade-deep)';
+    panel.style.background = 'linear-gradient(135deg,rgba(91,168,114,.06),var(--ink))';
+  } else if (total <= 2) {
+    counterEl.style.color = 'var(--amber)';
+    iconEl.textContent = '⚠️';
+    statusEl.textContent = `${total} violation(s) discipline aujourd'hui · Reste vigilant`;
+    panel.style.borderColor = 'var(--amber)';
+    panel.style.background = 'linear-gradient(135deg,rgba(255,176,32,.06),var(--ink))';
+  } else {
+    counterEl.style.color = 'var(--rust)';
+    iconEl.textContent = '🚨';
+    statusEl.textContent = `${total} violations · STOP TRADING · Prends une pause`;
+    panel.style.borderColor = 'var(--rust)';
+    panel.style.background = 'linear-gradient(135deg,rgba(224,72,53,.1),var(--ink))';
+  }
+}
+
+// ============ V5.0 · EQUITY CURVE ============
+let equityChartInstance = null;
+let currentEquityPeriod = 7;
+
+async function loadEquityCurve(days){
+  currentEquityPeriod = days;
+  document.querySelectorAll('.period-btn').forEach(b => {
+    b.style.background = 'var(--ink)';
+    b.style.color = 'var(--bone-dim)';
+    b.style.border = '1px solid var(--smoke)';
+  });
+  const activeBtn = document.getElementById(`eq${days}`);
+  if (activeBtn) {
+    activeBtn.style.background = 'var(--gold)';
+    activeBtn.style.color = 'var(--black)';
+    activeBtn.style.border = 'none';
+  }
+  try {
+    const res = await fetch(API + `/api/equity?days=${days}`);
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      const ctx = document.getElementById('equityChart').getContext('2d');
+      ctx.clearRect(0, 0, 400, 240);
+      ctx.fillStyle = '#A8A49A'; ctx.font = '12px JetBrains Mono'; ctx.textAlign = 'center';
+      ctx.fillText('Pas de données pour cette période', 200, 120);
+      return;
+    }
+    const labels = data.map(d => new Date(d.date).toLocaleDateString('fr-FR', {day:'2-digit', month:'short'}));
+    const cumulative = data.map(d => d.cumulative_pnl);
+    const dayPnl = data.map(d => d.day_pnl);
+    const finalPnl = cumulative[cumulative.length - 1] || 0;
+    const lineColor = finalPnl >= 0 ? '#5BA872' : '#E04835';
+    if (equityChartInstance) equityChartInstance.destroy();
+    const ctx = document.getElementById('equityChart').getContext('2d');
+    equityChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: [{ label: 'Cumulative P&L', data: cumulative, borderColor: lineColor, backgroundColor: lineColor + '20', fill: true, tension: 0.3, pointRadius: 3, pointBackgroundColor: lineColor }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { const idx = ctx.dataIndex; return [`Cumul: $${cumulative[idx].toFixed(2)}`, `Jour: ${dayPnl[idx] >= 0 ? '+' : ''}$${dayPnl[idx].toFixed(2)}`]; } } } },
+        scales: { x: { ticks: { color: '#A8A49A', font: { size: 10 } }, grid: { color: '#2A2A32' } }, y: { ticks: { color: '#A8A49A', font: { size: 10 }, callback: v => '$' + v }, grid: { color: '#2A2A32' } } }
+      }
+    });
+  } catch (e) { console.error('Equity load error:', e); }
+}
+
+// ============ V5.0 · STATS BY SETUP ============
+async function loadStats(){
+  try {
+    const res = await fetch(API + '/api/stats/setups');
+    const data = await res.json();
+    const container = document.getElementById('setupsStats');
+    if (!data.byVerdict || data.byVerdict.length === 0) {
+      container.innerHTML = '<div class="loading">Pas de stats encore</div>'; return;
+    }
+    container.innerHTML = data.byVerdict.map(s => {
+      const wrColor = s.win_rate >= 60 ? 'var(--jade)' : s.win_rate >= 40 ? 'var(--amber)' : 'var(--rust)';
+      const pnlColor = s.total_pnl >= 0 ? 'var(--jade)' : 'var(--rust)';
+      return `
+        <div style="padding:8px 10px;background:var(--obsidian);border-left:3px solid ${pnlColor};border-radius:2px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <span style="font-family:'Fraunces',serif;font-style:italic;font-weight:700;font-size:13px;color:var(--gold-bright)">${s.verdict}</span>
+            <span style="font-size:10px;color:${pnlColor};font-weight:700">${s.total_pnl >= 0 ? '+' : ''}$${s.total_pnl.toFixed(0)}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:9px;color:var(--bone-dim)">
+            <div>T: <span style="color:var(--bone)">${s.total}</span></div>
+            <div>WR: <span style="color:${wrColor}">${s.win_rate}%</span></div>
+            <div>Avg: <span style="color:var(--bone)">$${s.avg_pnl.toFixed(1)}</span></div>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (e) { console.error('Stats load error:', e); }
+}
+
+// ============ V5.0 · HEATMAP ============
+async function loadHeatmap(){
+  try {
+    const res = await fetch(API + '/api/heatmap');
+    const data = await res.json();
+    const container = document.getElementById('heatmapContainer');
+    if (!Array.isArray(data) || data.length === 0) {
+      container.innerHTML = '<div class="loading">Pas assez de trades</div>'; return;
+    }
+    const grid = {};
+    const days = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+    data.forEach(d => { grid[`${d.day}-${d.hour}`] = d; });
+    let maxAbs = 1;
+    data.forEach(d => { if (Math.abs(d.pnl) > maxAbs) maxAbs = Math.abs(d.pnl); });
+    let html = '<table style="border-collapse:collapse;font-family:JetBrains Mono;font-size:9px;width:100%"><thead><tr><th style="text-align:left;padding:4px;color:var(--bone-dim)">J/H</th>';
+    for (let h = 0; h < 24; h++) html += `<th style="padding:2px;color:var(--bone-dim);font-weight:400;text-align:center">${h.toString().padStart(2,'0')}</th>`;
+    html += '</tr></thead><tbody>';
+    const dayOrder = [1, 2, 3, 4, 5, 6, 0];
+    dayOrder.forEach(dayIdx => {
+      html += `<tr><td style="padding:4px;color:var(--gold);font-weight:700">${days[dayIdx]}</td>`;
+      for (let h = 0; h < 24; h++) {
+        const cell = grid[`${dayIdx}-${h}`];
+        if (cell) {
+          const intensity = Math.min(1, Math.abs(cell.pnl) / maxAbs);
+          const bg = cell.pnl > 0 ? `rgba(91,168,114,${0.2 + intensity * 0.6})` : `rgba(224,72,53,${0.2 + intensity * 0.6})`;
+          html += `<td title="${days[dayIdx]} ${h}h · ${cell.trades} trades · WR ${cell.win_rate}% · $${cell.pnl.toFixed(2)}" style="background:${bg};text-align:center;padding:4px;color:white;font-weight:700;border:1px solid var(--smoke)">${cell.pnl > 0 ? '+' : ''}${cell.pnl.toFixed(0)}</td>`;
+        } else {
+          html += `<td style="background:var(--obsidian);text-align:center;padding:4px;color:var(--smoke);border:1px solid var(--smoke)">·</td>`;
+        }
+      }
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  } catch (e) { console.error('Heatmap load error:', e); }
+}
+
+function loadAnalytics(){
+  loadEquityCurve(currentEquityPeriod);
+  loadStats();
+  loadHeatmap();
+}
+
 fetchAll();
-setInterval(fetchAll, 30000);  // Refresh every 30s for live trades
+loadAnalytics();
+setInterval(fetchAll, 30000);
+setInterval(loadAnalytics, 60000);
 </script>
 </body>
 </html>

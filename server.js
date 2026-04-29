@@ -486,7 +486,47 @@ async function fetchCalendar() {
     const res = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json');
     const data = await res.json();
     const today = new Date().toDateString();
-    cache.calendar = data.filter(e => e.date && new Date(e.date).toDateString() === today).map(e => ({ time: new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }), event: e.title, sub: `${e.country} ${e.forecast ? '· F:' + e.forecast : ''} ${e.previous ? '· P:' + e.previous : ''}`, impact: e.impact?.toLowerCase() || 'low', warn: e.impact?.toLowerCase() === 'high' && ['USD', 'EUR'].includes(e.country) }));
+    
+    // V5.1: Expanded country impact mapping
+    const goldImpactCountries = ['USD', 'EUR', 'CNY', 'GBP', 'JPY', 'CHF', 'AUD', 'CAD'];
+    
+    // V5.1: Critical event keywords that move Gold regardless of country
+    const criticalKeywords = [
+      'fomc', 'fed funds', 'rate decision', 'interest rate',
+      'cpi', 'core cpi', 'ppi', 'pce',
+      'nfp', 'non-farm', 'unemployment',
+      'gdp', 'retail sales',
+      'powell', 'lagarde', 'bailey', 'ueda',  // Central bank chiefs
+      'politburo', 'pmi', 'manufacturing pmi', 'services pmi',
+      'opec', 'crude oil',
+      'consumer confidence'
+    ];
+    
+    cache.calendar = data
+      .filter(e => e.date && new Date(e.date).toDateString() === today)
+      .map(e => {
+        const eventLower = (e.title || '').toLowerCase();
+        const isCritical = criticalKeywords.some(kw => eventLower.includes(kw));
+        const isImpactCountry = goldImpactCountries.includes(e.country);
+        const isHigh = e.impact?.toLowerCase() === 'high';
+        
+        // Warn if: high impact + (impact country OR critical keyword)
+        // Also warn medium critical keywords from impact countries
+        const warn = isHigh && (isImpactCountry || isCritical);
+        const mediumWarn = e.impact?.toLowerCase() === 'medium' && isImpactCountry && isCritical;
+        
+        return {
+          time: new Date(e.date).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          event: e.title,
+          country: e.country,
+          sub: `${e.country} ${e.forecast ? '· F:' + e.forecast : ''} ${e.previous ? '· P:' + e.previous : ''}`,
+          impact: e.impact?.toLowerCase() || 'low',
+          warn: warn || mediumWarn,
+          isCritical,
+          isImpactCountry,
+          rawDate: e.date
+        };
+      });
   } catch (e) { cache.calendar = []; }
 }
 
@@ -1251,6 +1291,341 @@ function analyzeSmartLevels() {
     });
   }
   
+  // ============================================================
+  // V5.0 · ORDER BLOCK SETUPS
+  // ============================================================
+  
+  if (m.near_ob_bull && m.rsi_m5 < 50) {
+    const conf = [];
+    conf.push(`📦 ORDER BLOCK BULLISH @ ${m.ob_bull_low?.toFixed(2)}-${m.ob_bull_high?.toFixed(2)}`);
+    conf.push(`✅ Zone d'achat institutionnelle`);
+    if (rsi_m5_30) conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} oversold`);
+    if (m.is_pin_bull) conf.push(`✅ Pin bar bullish`);
+    let score = 70;
+    let grade = 'A';
+    if (m.sweep_low) { conf.push(`✅ Sweep low confirme`); score += 12; grade = 'A+'; }
+    if (h1_trend_up) { conf.push(`✅ H1 haussier`); score += 8; }
+    if (m.rsi_bull_div) { conf.push(`📊 Divergence RSI bullish`); score += 10; grade = 'A+'; }
+    setups.push({
+      type: 'BUY', grade, score,
+      label: `📦 ORDER BLOCK BUY · zone institutionnelle`,
+      entry: price,
+      sl: m.ob_bull_low - 3,
+      tp1: price + 4, tp2: price + 7, tp3: price + 12,
+      sl_pts: (price - (m.ob_bull_low - 3)).toFixed(1),
+      tp1_pts: '4.0', tp2_pts: '7.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: 'BUY_OB'
+    });
+  }
+  
+  if (m.near_ob_bear && m.rsi_m5 > 50) {
+    const conf = [];
+    conf.push(`📦 ORDER BLOCK BEARISH @ ${m.ob_bear_low?.toFixed(2)}-${m.ob_bear_high?.toFixed(2)}`);
+    conf.push(`✅ Zone de vente institutionnelle`);
+    if (rsi_m5_70) conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} overbought`);
+    if (m.is_pin_bear) conf.push(`✅ Pin bar bearish`);
+    let score = 70;
+    let grade = 'A';
+    if (m.sweep_high) { conf.push(`✅ Sweep high confirme`); score += 12; grade = 'A+'; }
+    if (h1_trend_down) { conf.push(`✅ H1 baissier`); score += 8; }
+    if (m.rsi_bear_div) { conf.push(`📊 Divergence RSI bearish`); score += 10; grade = 'A+'; }
+    setups.push({
+      type: 'SHORT', grade, score,
+      label: `📦 ORDER BLOCK SHORT · zone institutionnelle`,
+      entry: price,
+      sl: m.ob_bear_high + 3,
+      tp1: price - 4, tp2: price - 7, tp3: price - 12,
+      sl_pts: (m.ob_bear_high + 3 - price).toFixed(1),
+      tp1_pts: '4.0', tp2_pts: '7.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: 'SHORT_OB'
+    });
+  }
+  
+  // ============================================================
+  // V5.0 · FVG (Fair Value Gap) SETUPS
+  // ============================================================
+  
+  if (m.in_fvg_bull) {
+    const conf = [];
+    conf.push(`🪞 FVG BULLISH · prix dans gap @ ${m.fvg_bull_bot?.toFixed(2)}-${m.fvg_bull_top?.toFixed(2)}`);
+    conf.push(`✅ Inefficiency · zone à respecter`);
+    let score = 65;
+    let grade = 'B';
+    if (h1_trend_up) { conf.push(`✅ H1 haussier`); score += 10; grade = 'A'; }
+    if (rsi_m5_30) { conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} oversold`); score += 8; }
+    if (m.is_pin_bull) { conf.push(`✅ Pin bar bullish`); score += 5; }
+    setups.push({
+      type: 'BUY', grade, score,
+      label: `🪞 FVG BUY · gap inefficiency`,
+      entry: price,
+      sl: m.fvg_bull_bot - 3,
+      tp1: price + 3, tp2: price + 5, tp3: price + 8,
+      sl_pts: (price - (m.fvg_bull_bot - 3)).toFixed(1),
+      tp1_pts: '3.0', tp2_pts: '5.0', tp3_pts: '8.0',
+      rr: '0.8',
+      confluences: conf,
+      alertKey: 'BUY_FVG'
+    });
+  }
+  
+  if (m.in_fvg_bear) {
+    const conf = [];
+    conf.push(`🪞 FVG BEARISH · prix dans gap @ ${m.fvg_bear_bot?.toFixed(2)}-${m.fvg_bear_top?.toFixed(2)}`);
+    let score = 65;
+    let grade = 'B';
+    if (h1_trend_down) { conf.push(`✅ H1 baissier`); score += 10; grade = 'A'; }
+    if (rsi_m5_70) { conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} overbought`); score += 8; }
+    if (m.is_pin_bear) { conf.push(`✅ Pin bar bearish`); score += 5; }
+    setups.push({
+      type: 'SHORT', grade, score,
+      label: `🪞 FVG SHORT · gap inefficiency`,
+      entry: price,
+      sl: m.fvg_bear_top + 3,
+      tp1: price - 3, tp2: price - 5, tp3: price - 8,
+      sl_pts: (m.fvg_bear_top + 3 - price).toFixed(1),
+      tp1_pts: '3.0', tp2_pts: '5.0', tp3_pts: '8.0',
+      rr: '0.8',
+      confluences: conf,
+      alertKey: 'SHORT_FVG'
+    });
+  }
+  
+  // ============================================================
+  // V5.0 · DIVERGENCE SETUPS (very powerful when standalone)
+  // ============================================================
+  
+  if (m.rsi_bull_div && rsi_m5_30) {
+    const conf = [];
+    conf.push(`📊 DIVERGENCE RSI BULLISH · prix LL + RSI HL`);
+    conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} oversold`);
+    let score = 75;
+    let grade = 'A+';
+    if (m.sweep_low) { conf.push(`✅ Sweep low`); score += 8; grade = 'A++'; }
+    if (m.is_pin_bull) { conf.push(`✅ Pin bar bullish`); score += 5; }
+    if (h1_trend_up) { conf.push(`✅ H1 haussier`); score += 5; }
+    setups.push({
+      type: 'BUY', grade, score,
+      label: `📊 RSI DIVERGENCE BUY · reversal signal`,
+      entry: price,
+      sl: price - 5,
+      tp1: price + 5, tp2: price + 8, tp3: price + 12,
+      sl_pts: '5.0', tp1_pts: '5.0', tp2_pts: '8.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: 'BUY_DIV'
+    });
+  }
+  
+  if (m.rsi_bear_div && rsi_m5_70) {
+    const conf = [];
+    conf.push(`📊 DIVERGENCE RSI BEARISH · prix HH + RSI LH`);
+    conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} overbought`);
+    let score = 75;
+    let grade = 'A+';
+    if (m.sweep_high) { conf.push(`✅ Sweep high`); score += 8; grade = 'A++'; }
+    if (m.is_pin_bear) { conf.push(`✅ Pin bar bearish`); score += 5; }
+    if (h1_trend_down) { conf.push(`✅ H1 baissier`); score += 5; }
+    setups.push({
+      type: 'SHORT', grade, score,
+      label: `📊 RSI DIVERGENCE SHORT · reversal signal`,
+      entry: price,
+      sl: price + 5,
+      tp1: price - 5, tp2: price - 8, tp3: price - 12,
+      sl_pts: '5.0', tp1_pts: '5.0', tp2_pts: '8.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: 'SHORT_DIV'
+    });
+  }
+  
+  // ============================================================
+  // V5.0 · VWAP SETUPS (institutional trading)
+  // ============================================================
+  
+  // VWAP rejection: prix bouncing off VWAP
+  if (m.vwap > 0) {
+    const distFromVwap = Math.abs(price - m.vwap);
+    if (distFromVwap <= 1.5) {
+      // Price near VWAP - look for direction
+      if (m.above_vwap && rsi_m5_30) {
+        // Pull-back to VWAP from above + oversold = BUY (continuation up)
+        const conf = [];
+        conf.push(`📍 VWAP pullback @ ${m.vwap.toFixed(2)}`);
+        conf.push(`✅ Prix tient VWAP · continuation haussière`);
+        conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} oversold`);
+        let score = 65;
+        let grade = 'A';
+        if (h1_trend_up) { conf.push(`✅ H1 haussier`); score += 10; grade = 'A+'; }
+        setups.push({
+          type: 'BUY', grade, score,
+          label: `📍 VWAP PULLBACK BUY · institutional level`,
+          entry: price,
+          sl: m.vwap - 3,
+          tp1: price + 4, tp2: price + 7, tp3: price + 10,
+          sl_pts: (price - (m.vwap - 3)).toFixed(1),
+          tp1_pts: '4.0', tp2_pts: '7.0', tp3_pts: '10.0',
+          rr: '0.8',
+          confluences: conf,
+          alertKey: 'BUY_VWAP'
+        });
+      }
+      if (!m.above_vwap && rsi_m5_70) {
+        const conf = [];
+        conf.push(`📍 VWAP rejection @ ${m.vwap.toFixed(2)}`);
+        conf.push(`✅ Prix sous VWAP · continuation baissière`);
+        conf.push(`✅ RSI M5 ${m.rsi_m5.toFixed(1)} overbought`);
+        let score = 65;
+        let grade = 'A';
+        if (h1_trend_down) { conf.push(`✅ H1 baissier`); score += 10; grade = 'A+'; }
+        setups.push({
+          type: 'SHORT', grade, score,
+          label: `📍 VWAP REJECTION SHORT · institutional level`,
+          entry: price,
+          sl: m.vwap + 3,
+          tp1: price - 4, tp2: price - 7, tp3: price - 10,
+          sl_pts: (m.vwap + 3 - price).toFixed(1),
+          tp1_pts: '4.0', tp2_pts: '7.0', tp3_pts: '10.0',
+          rr: '0.8',
+          confluences: conf,
+          alertKey: 'SHORT_VWAP'
+        });
+      }
+    }
+  }
+  
+  // ============================================================
+  // V5.0 · BB SQUEEZE BREAKOUT
+  // ============================================================
+  
+  if (m.bb_squeeze_m5 && m.volume_spike) {
+    const conf = [];
+    conf.push(`🎯 BB SQUEEZE M5 · volatilité minimale (${m.bb_m5_width?.toFixed(2)}%)`);
+    conf.push(`📊 VOLUME SPIKE · breakout en cours`);
+    conf.push(`✅ Setup avant explosion directionnelle`);
+    let direction = 'BUY';
+    if (price > m.bb_m5_mid) direction = 'BUY';
+    else direction = 'SHORT';
+    
+    let score = 65;
+    let grade = 'B';
+    if (h1_trend_up && direction === 'BUY') { score += 10; grade = 'A'; conf.push(`✅ H1 trend confirme`); }
+    if (h1_trend_down && direction === 'SHORT') { score += 10; grade = 'A'; conf.push(`✅ H1 trend confirme`); }
+    
+    setups.push({
+      type: direction, grade, score,
+      label: `🎯 BB SQUEEZE BREAKOUT · volatilité explosée`,
+      entry: price,
+      sl: direction === 'BUY' ? price - 5 : price + 5,
+      tp1: direction === 'BUY' ? price + 5 : price - 5,
+      tp2: direction === 'BUY' ? price + 8 : price - 8,
+      tp3: direction === 'BUY' ? price + 12 : price - 12,
+      sl_pts: '5.0', tp1_pts: '5.0', tp2_pts: '8.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: `${direction}_BB_SQUEEZE`
+    });
+  }
+  
+  // ============================================================
+  // V5.0 · THREE SOLDIERS / THREE CROWS (continuation forte)
+  // ============================================================
+  
+  if (m.three_soldiers && h1_trend_up && rsi_m5_30) {
+    const conf = [];
+    conf.push(`⚔️ THREE WHITE SOLDIERS · 3 bougies bull consécutives`);
+    conf.push(`✅ Continuation haussière forte`);
+    if (h1_trend_up) conf.push(`✅ H1 haussier · alignment parfait`);
+    let score = 70;
+    let grade = 'A';
+    if (m.macd_bull_cross) { conf.push(`✅ MACD bull cross`); score += 8; }
+    setups.push({
+      type: 'BUY', grade, score,
+      label: `⚔️ THREE SOLDIERS BUY · continuation`,
+      entry: price,
+      sl: price - 5,
+      tp1: price + 5, tp2: price + 8, tp3: price + 12,
+      sl_pts: '5.0', tp1_pts: '5.0', tp2_pts: '8.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: 'BUY_3SOLDIERS'
+    });
+  }
+  
+  if (m.three_crows && h1_trend_down && rsi_m5_70) {
+    const conf = [];
+    conf.push(`⚔️ THREE BLACK CROWS · 3 bougies bear consécutives`);
+    conf.push(`✅ Continuation baissière forte`);
+    if (h1_trend_down) conf.push(`✅ H1 baissier · alignment parfait`);
+    let score = 70;
+    let grade = 'A';
+    if (m.macd_bear_cross) { conf.push(`✅ MACD bear cross`); score += 8; }
+    setups.push({
+      type: 'SHORT', grade, score,
+      label: `⚔️ THREE CROWS SHORT · continuation`,
+      entry: price,
+      sl: price + 5,
+      tp1: price - 5, tp2: price - 8, tp3: price - 12,
+      sl_pts: '5.0', tp1_pts: '5.0', tp2_pts: '8.0', tp3_pts: '12.0',
+      rr: '1.0',
+      confluences: conf,
+      alertKey: 'SHORT_3CROWS'
+    });
+  }
+  
+  // ============================================================
+  // V5.0 · GENERAL CONFLUENCE BOOSTERS (apply to all setups)
+  // ============================================================
+  
+  setups.forEach(s => {
+    // VWAP alignment boost
+    if (m.vwap > 0) {
+      if (s.type === 'BUY' && m.above_vwap) {
+        s.score += 5;
+        s.confluences.push(`📍 Au-dessus VWAP (${m.vwap.toFixed(2)}) · biais haussier`);
+      }
+      if (s.type === 'SHORT' && !m.above_vwap) {
+        s.score += 5;
+        s.confluences.push(`📍 Sous VWAP (${m.vwap.toFixed(2)}) · biais baissier`);
+      }
+    }
+    // Stochastic alignment
+    if (s.type === 'BUY' && m.stoch_m5 <= 20) {
+      s.score += 4;
+      s.confluences.push(`📈 Stoch M5 ${m.stoch_m5?.toFixed(0)} oversold`);
+    }
+    if (s.type === 'SHORT' && m.stoch_m5 >= 80) {
+      s.score += 4;
+      s.confluences.push(`📉 Stoch M5 ${m.stoch_m5?.toFixed(0)} overbought`);
+    }
+    // MACD alignment
+    if (s.type === 'BUY' && m.macd_bull_cross) {
+      s.score += 6;
+      s.confluences.push(`📈 MACD bull cross M5`);
+    }
+    if (s.type === 'SHORT' && m.macd_bear_cross) {
+      s.score += 6;
+      s.confluences.push(`📉 MACD bear cross M5`);
+    }
+    // FVG conflicts
+    if (s.type === 'BUY' && m.in_fvg_bear) {
+      s.score -= 8;
+      s.confluences.push(`⚠️ Prix dans FVG bear (résistance technique)`);
+    }
+    if (s.type === 'SHORT' && m.in_fvg_bull) {
+      s.score -= 8;
+      s.confluences.push(`⚠️ Prix dans FVG bull (support technique)`);
+    }
+    // Inside bar / Outside bar
+    if (m.outside_bar) {
+      s.score += 5;
+      s.confluences.push(`📦 Outside Bar · engulfing`);
+    }
+  });
+  
   // Filter by score and cooldown
   const now_ms = Date.now();
   
@@ -1486,6 +1861,305 @@ function shouldAllowAlert(setup) {
 
 // ============ END NEWS GUARD ============
 
+// ============ V5.1 · PRE-EVENT BRIEFING ============
+// Notifies 1h before high impact events with full context
+
+let preEventBriefingsSent = new Set();
+
+async function checkPreEventBriefings() {
+  if (!bot || !TELEGRAM_CHAT_ID) return;
+  const now = new Date();
+  const calendar = cache.calendar || [];
+  
+  for (const event of calendar) {
+    if (!event.warn || !event.rawDate) continue;
+    
+    const eventDate = new Date(event.rawDate);
+    const minutesUntil = (eventDate - now) / 60000;
+    
+    // 1h briefing
+    if (minutesUntil > 55 && minutesUntil <= 65) {
+      const key = `${event.event}_1h`;
+      if (!preEventBriefingsSent.has(key)) {
+        preEventBriefingsSent.add(key);
+        await send1HourBriefing(event);
+      }
+    }
+    // 30 min final warning
+    if (minutesUntil > 25 && minutesUntil <= 35) {
+      const key = `${event.event}_30m`;
+      if (!preEventBriefingsSent.has(key)) {
+        preEventBriefingsSent.add(key);
+        await send30MinWarning(event);
+      }
+    }
+  }
+  
+  // Cleanup old keys
+  if (preEventBriefingsSent.size > 200) {
+    const arr = Array.from(preEventBriefingsSent);
+    preEventBriefingsSent.clear();
+    arr.slice(-100).forEach(k => preEventBriefingsSent.add(k));
+  }
+}
+
+async function send1HourBriefing(event) {
+  if (!bot) return;
+  let msg = `📰 *KAO V2 · BRIEFING 1H AVANT*\n\n`;
+  msg += `⏰ Dans 1h : *${event.event}*\n`;
+  msg += `🌍 ${event.country}\n`;
+  msg += `📅 ${event.time} · Impact ${event.impact?.toUpperCase()}\n\n`;
+  
+  const goldExpectation = predictGoldImpact(event);
+  msg += `*Impact attendu sur Gold :*\n${goldExpectation}\n\n`;
+  
+  msg += `*Plan d'action :*\n`;
+  msg += `  ⏱️ T-30min : warning final + protection enclenchée\n`;
+  msg += `  ⏱️ T-15min : *News Guard ACTIF* · alertes setups SUSPENDUES\n`;
+  msg += `  ⏱️ T+15min : Mode prudent · seuls A++ alertés\n`;
+  msg += `  ⏱️ T+45min : Reprise normale\n\n`;
+  msg += `💡 Si tu as une position ouverte, considère sécuriser ou fermer.`;
+  
+  try { await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' }); } catch (e) {}
+}
+
+async function send30MinWarning(event) {
+  if (!bot) return;
+  let msg = `⚠️🚨 *KAO V2 · WARNING T-30MIN*\n\n`;
+  msg += `🔴 *${event.event}* dans 30 min\n`;
+  msg += `🌍 ${event.country} · ${event.time}\n\n`;
+  msg += `*ACTIONS IMMÉDIATES :*\n`;
+  msg += `  ❌ N'ouvre PAS de nouveau trade\n`;
+  msg += `  🛡️ Vérifie tes SL sur positions ouvertes\n`;
+  msg += `  ⚠️ Spread va s'élargir dans 15 min\n`;
+  msg += `  💡 Considère fermer 5 min avant\n\n`;
+  msg += `_News Guard activé dans 15 min_`;
+  
+  try { await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' }); } catch (e) {}
+}
+
+function predictGoldImpact(event) {
+  const e = (event.event || '').toLowerCase();
+  const country = event.country;
+  
+  // Specific event predictions
+  if (e.includes('rate decision') || e.includes('fomc') || e.includes('fed funds')) {
+    return `📊 Décision taux directeur · IMPACT MAJEUR\n  Hawkish (rate hike) → 📉 Gold bearish\n  Dovish (rate cut/pause) → 📈 Gold bullish`;
+  }
+  if (e.includes('cpi') || e.includes('core cpi')) {
+    return `📊 Inflation key data\n  Higher than forecast → 📈 Gold bullish (inflation hedge)\n  Lower than forecast → 📉 Gold bearish`;
+  }
+  if (e.includes('nfp') || e.includes('non-farm') || e.includes('unemployment')) {
+    return `📊 Emploi US\n  Strong jobs → 📉 Gold bearish (Fed plus hawkish)\n  Weak jobs → 📈 Gold bullish (Fed plus dovish)`;
+  }
+  if (e.includes('powell') || e.includes('lagarde') || e.includes('ueda')) {
+    return `🎤 Discours banquier central · volatilité extrême\n  Surveille chaque mot · réaction immédiate`;
+  }
+  if (e.includes('gdp')) {
+    return `📊 PIB\n  Strong → 📉 Gold (économie saine, moins de safe haven)\n  Weak → 📈 Gold (récession = refuge)`;
+  }
+  if (e.includes('pmi')) {
+    return `📊 PMI ${country}\n  >50 expansion → généralement bearish Gold\n  <50 contraction → bullish Gold`;
+  }
+  if (e.includes('opec')) {
+    return `🛢️ Production pétrole\n  Cut → oil up → inflation up → mixed Gold\n  Hike → oil down → bearish Gold`;
+  }
+  if (e.includes('politburo') || e.includes('china') || country === 'CNY') {
+    return `🌏 Chine (1er importateur Gold)\n  Stimulus → 📈 Gold bullish (demande boost)\n  Tightening → 📉 Gold bearish`;
+  }
+  return `📊 Event ${event.impact} impact ${country}\n  Surveille la réaction USD/Gold immédiatement`;
+}
+
+// ============ V5.1 · BREAKING NEWS DETECTOR ============
+// Detects high-impact news in real-time and alerts
+
+let alertedNewsIds = new Set();
+
+const breakingKeywords = {
+  // Geopolitical extreme
+  critical: [
+    'breaking', 'urgent', 'just in', 'alert',
+    'invasion', 'attack', 'strike', 'missile', 'bomb',
+    'ceasefire', 'peace deal', 'agreement reached',
+    'sanction', 'embargo', 'tariff', 'trade war',
+    'crisis', 'collapse', 'crash', 'plunge',
+    'shock', 'unexpected'
+  ],
+  // Central banks
+  cb: [
+    'fed', 'powell', 'fomc', 'rate cut', 'rate hike',
+    'dovish', 'hawkish', 'pivot', 'pause',
+    'ecb', 'lagarde', 'boe', 'bailey',
+    'boj', 'ueda', 'yen intervention',
+    'pboc', 'china central bank', 'rrr cut'
+  ],
+  // Politics
+  political: [
+    'trump', 'biden', 'xi jinping', 'putin',
+    'politburo', 'congress', 'senate',
+    'election', 'impeachment',
+    'shutdown', 'default'
+  ],
+  // Markets shock
+  marketShock: [
+    'all-time high', 'record', 'all-time low',
+    'circuit breaker', 'halt trading',
+    'flash crash', 'liquidity crisis'
+  ]
+};
+
+function classifyBreakingNews(text) {
+  const t = text.toLowerCase();
+  let score = 0;
+  let categories = [];
+  
+  for (const [cat, keywords] of Object.entries(breakingKeywords)) {
+    for (const kw of keywords) {
+      if (t.includes(kw)) {
+        score += cat === 'critical' ? 25 : cat === 'cb' ? 20 : cat === 'political' ? 15 : 30;
+        categories.push(cat);
+      }
+    }
+  }
+  
+  return { score: Math.min(100, score), categories: [...new Set(categories)] };
+}
+
+async function checkBreakingNews() {
+  if (!bot || !TELEGRAM_CHAT_ID) return;
+  const news = cache.news || [];
+  
+  for (const item of news.slice(0, 10)) {  // Top 10 freshest
+    const itemKey = (item.link || item.title || '').substring(0, 100);
+    if (alertedNewsIds.has(itemKey)) continue;
+    
+    // Only news < 30 min old
+    const ageMin = (Date.now() - new Date(item.time)) / 60000;
+    if (ageMin > 30 || ageMin < 0) continue;
+    
+    const text = (item.title + ' ' + (item.desc || '')).substring(0, 500);
+    const breaking = classifyBreakingNews(text);
+    
+    if (breaking.score >= 50 && item.impact === 'high') {
+      alertedNewsIds.add(itemKey);
+      await sendBreakingNewsAlert(item, breaking);
+    }
+  }
+  
+  if (alertedNewsIds.size > 200) {
+    const arr = Array.from(alertedNewsIds);
+    alertedNewsIds.clear();
+    arr.slice(-100).forEach(k => alertedNewsIds.add(k));
+  }
+}
+
+async function sendBreakingNewsAlert(news, breaking) {
+  if (!bot) return;
+  const goldImpact = news.signal === 'bull' ? '📈🟢 Bullish Gold' : 
+                     news.signal === 'bear' ? '📉🔴 Bearish Gold' : 
+                     '🟡 Direction mixte';
+  
+  let msg = `🚨📰 *KAO V2 · BREAKING NEWS*\n\n`;
+  msg += `*${news.title}*\n\n`;
+  msg += `📰 Source : ${news.source}\n`;
+  msg += `⏰ ${Math.round((Date.now() - new Date(news.time)) / 60000)}min\n`;
+  msg += `🔥 Score impact : ${breaking.score}/100\n`;
+  if (breaking.categories.length) msg += `🏷️ ${breaking.categories.join(', ')}\n`;
+  msg += `💰 ${goldImpact}\n\n`;
+  
+  if (news.desc) msg += `_"${news.desc.substring(0, 250)}${news.desc.length > 250 ? '...' : ''}"_\n\n`;
+  
+  msg += `*Recommendation :*\n`;
+  if (news.signal === 'bull') msg += `  ⚠️ Possible spike Gold haussier · prudence shorts\n`;
+  else if (news.signal === 'bear') msg += `  ⚠️ Possible chute Gold · prudence longs\n`;
+  msg += `  🛡️ Vérifie tes SL\n`;
+  msg += `  ⏱️ Volatilité 15-30 min`;
+  
+  try { await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' }); } catch (e) {}
+}
+
+// ============ V5.1 · ABNORMAL MOVEMENT DETECTOR ============
+// Detects rapid price moves (pump/dump) and alerts with possible cause
+
+let priceHistory = [];  // {time, price}
+let lastAbnormalAlert = 0;
+
+function recordPriceForAnomaly(price) {
+  const now = Date.now();
+  priceHistory.push({ time: now, price });
+  // Keep only last 10 minutes
+  priceHistory = priceHistory.filter(p => now - p.time < 600000);
+}
+
+async function detectAbnormalMovement() {
+  if (priceHistory.length < 10) return;
+  if (!bot || !TELEGRAM_CHAT_ID) return;
+  
+  const now = Date.now();
+  if (now - lastAbnormalAlert < 5 * 60 * 1000) return;  // Cooldown 5 min
+  
+  // Find price 5 minutes ago
+  const fiveMinAgo = now - 5 * 60 * 1000;
+  const oldPrice = priceHistory.find(p => p.time >= fiveMinAgo);
+  if (!oldPrice) return;
+  
+  const currentPrice = priceHistory[priceHistory.length - 1].price;
+  const movement = currentPrice - oldPrice.price;
+  const movementAbs = Math.abs(movement);
+  
+  // Threshold: $10+ in 5 min on Gold = abnormal
+  if (movementAbs >= 10) {
+    lastAbnormalAlert = now;
+    await sendAbnormalMovementAlert(oldPrice.price, currentPrice, movement);
+  }
+}
+
+async function sendAbnormalMovementAlert(oldPrice, newPrice, movement) {
+  if (!bot) return;
+  const direction = movement > 0 ? '📈⬆️ PUMP' : '📉⬇️ DUMP';
+  const emoji = movement > 0 ? '🚀' : '💥';
+  
+  let msg = `${emoji} *KAO V2 · MOUVEMENT ANORMAL*\n\n`;
+  msg += `${direction} Gold a bougé *${movement > 0 ? '+' : ''}$${movement.toFixed(2)}* en 5 min\n`;
+  msg += `📊 ${oldPrice.toFixed(2)} → *${newPrice.toFixed(2)}*\n\n`;
+  
+  // Try to find the cause in recent news
+  const recentNews = (cache.news || []).filter(n => {
+    const ageMin = (Date.now() - new Date(n.time)) / 60000;
+    return ageMin >= 0 && ageMin <= 15;  // Last 15 min
+  });
+  
+  if (recentNews.length > 0) {
+    msg += `*Cause possible (news récentes) :*\n`;
+    recentNews.slice(0, 3).forEach(n => {
+      msg += `  📰 ${n.source} : ${n.title.substring(0, 100)}\n`;
+    });
+    msg += `\n`;
+  }
+  
+  // Check Trump posts
+  const recentTrump = (cache.trump || []).filter(t => {
+    const ageMin = (Date.now() - new Date(t.time)) / 60000;
+    return ageMin >= 0 && ageMin <= 15;
+  });
+  if (recentTrump.length > 0) {
+    msg += `🇺🇸 *Posts Trump récents :*\n`;
+    recentTrump.slice(0, 2).forEach(t => {
+      msg += `  ${t.text.substring(0, 100)}\n`;
+    });
+    msg += `\n`;
+  }
+  
+  msg += `💡 *Action :*\n`;
+  msg += `  ⚠️ Pas de trade pendant 10 min\n`;
+  msg += `  🛡️ Vérifie tes positions ouvertes\n`;
+  msg += `  📊 Attends que la volatilité retombe`;
+  
+  try { await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' }); } catch (e) {}
+}
+
+// ============ END V5.1 ============
+
 async function runSmartEngine() {
   // First, evaluate news guard state
   evaluateNewsGuard();
@@ -1596,6 +2270,465 @@ async function scanAndAlert() {
   }).sort((a, b) => a.distanceAbs - b.distanceAbs);
 }
 
+// ============ V5.0 · DISCIPLINE TRACKER ============
+// Detects bad trading habits and warns BEFORE damage is done
+
+const disciplineState = {
+  recentTrades: {},  // account → array of recent trades
+  violations: {},    // account → daily violations count
+  lastResetDate: null
+};
+
+function resetDailyDisciplineIfNeeded() {
+  const today = new Date().toDateString();
+  if (disciplineState.lastResetDate !== today) {
+    disciplineState.violations = {};
+    disciplineState.lastResetDate = today;
+  }
+}
+
+async function checkDisciplineOnNewTrade(trade) {
+  resetDailyDisciplineIfNeeded();
+  if (!disciplineState.recentTrades[trade.account]) {
+    disciplineState.recentTrades[trade.account] = [];
+  }
+  if (!disciplineState.violations[trade.account]) {
+    disciplineState.violations[trade.account] = 0;
+  }
+  
+  const violations = [];
+  const accountInfo = cache.accounts[trade.account] || {};
+  const profile = detectAccountProfile(accountInfo.balance);
+  
+  // 1. NO STOP LOSS
+  if (!trade.sl || trade.sl === 0 || trade.sl_pts === 0) {
+    violations.push({
+      type: 'NO_SL',
+      severity: 'CRITICAL',
+      msg: '🚨 TRADE SANS STOP LOSS · risque illimité'
+    });
+  }
+  
+  // 2. LOT INHABITUEL (>2x le lot moyen récent ou >max profil)
+  let avgLot = 0.5;
+  if (pool) {
+    try {
+      const r = await pool.query(
+        `SELECT AVG(volume) as avg_vol FROM trades 
+         WHERE account = $1 AND status = 'closed' 
+         AND closed_at > NOW() - INTERVAL '7 days'`,
+        [String(trade.account)]
+      );
+      if (r.rows[0]?.avg_vol) avgLot = parseFloat(r.rows[0].avg_vol);
+    } catch (e) {}
+  }
+  if (trade.volume > avgLot * 2 && trade.volume > 0.10) {
+    violations.push({
+      type: 'BIG_LOT',
+      severity: 'HIGH',
+      msg: `⚠️ Lot ${trade.volume} (${(trade.volume/avgLot).toFixed(1)}x ton lot moyen ${avgLot.toFixed(2)})`
+    });
+  }
+  
+  // Lot vs profile max
+  if (profile) {
+    const maxRecommended = profile.type.includes('100K') ? 0.60
+                         : profile.type.includes('50K') ? 0.40
+                         : profile.type.includes('20K') ? 0.16
+                         : profile.type.includes('10K') ? 0.08 : 999;
+    if (trade.volume > maxRecommended) {
+      violations.push({
+        type: 'OVER_LOT_PROFILE',
+        severity: 'HIGH',
+        msg: `⚠️ Lot ${trade.volume} dépasse max conseillé ${maxRecommended} pour ${profile.type}`
+      });
+    }
+  }
+  
+  // 3. REVENGE TRADE (entry < 5 min après une perte)
+  const recent = disciplineState.recentTrades[trade.account];
+  const lastClosed = recent.filter(t => t.status === 'closed').slice(-1)[0];
+  if (lastClosed && lastClosed.net_profit < 0) {
+    const minsSince = (Date.now() - new Date(lastClosed.closed_at).getTime()) / 60000;
+    if (minsSince < 5) {
+      violations.push({
+        type: 'REVENGE',
+        severity: 'CRITICAL',
+        msg: `🚨 REVENGE TRADE · entry ${minsSince.toFixed(0)}min après une perte de $${lastClosed.net_profit.toFixed(0)}`
+      });
+    }
+  }
+  
+  // 4. OVER-TRADING (>5 trades sur la journée)
+  let todayCount = 1;
+  if (pool) {
+    try {
+      const r = await pool.query(
+        `SELECT COUNT(*) as cnt FROM trades 
+         WHERE account = $1 
+         AND DATE(opened_at) = CURRENT_DATE`,
+        [String(trade.account)]
+      );
+      todayCount = parseInt(r.rows[0].cnt) || 1;
+    } catch (e) {}
+  }
+  if (todayCount > 5) {
+    violations.push({
+      type: 'OVERTRADING',
+      severity: 'HIGH',
+      msg: `⚠️ ${todayCount}ème trade aujourd'hui · over-trading possible`
+    });
+  }
+  
+  // 5. 3 LOSING TRADES IN A ROW
+  if (pool) {
+    try {
+      const r = await pool.query(
+        `SELECT net_profit FROM trades 
+         WHERE account = $1 AND status = 'closed' 
+         ORDER BY closed_at DESC LIMIT 3`,
+        [String(trade.account)]
+      );
+      const last3 = r.rows.map(x => parseFloat(x.net_profit) || 0);
+      if (last3.length === 3 && last3.every(p => p < 0)) {
+        violations.push({
+          type: 'LOSING_STREAK',
+          severity: 'CRITICAL',
+          msg: `🚨 3 pertes consécutives ($${last3.map(p => p.toFixed(0)).join(', $')}) · ARRÊTE-TOI`
+        });
+      }
+    } catch (e) {}
+  }
+  
+  // 6. Trade pendant news guard (just info)
+  if (newsGuardState.status === 'PRE_NEWS' || newsGuardState.status === 'DURING_NEWS') {
+    violations.push({
+      type: 'NEWS_TRADE',
+      severity: 'HIGH',
+      msg: `⚠️ Trade pendant ${newsGuardState.status} · spread élargi`
+    });
+  }
+  
+  if (violations.length > 0) {
+    disciplineState.violations[trade.account] += violations.length;
+    await sendDisciplineAlert(trade, violations);
+  }
+  
+  // Add to recent
+  disciplineState.recentTrades[trade.account].push({
+    ...trade, status: 'open', opened_at: new Date()
+  });
+  if (disciplineState.recentTrades[trade.account].length > 20) {
+    disciplineState.recentTrades[trade.account].shift();
+  }
+  
+  return violations;
+}
+
+function recordClosedTradeForDiscipline(trade) {
+  if (!disciplineState.recentTrades[trade.account]) return;
+  const recent = disciplineState.recentTrades[trade.account];
+  const idx = recent.findIndex(t => t.ticket === trade.ticket);
+  if (idx >= 0) {
+    recent[idx].status = 'closed';
+    recent[idx].closed_at = new Date();
+    recent[idx].net_profit = trade.net_profit;
+  }
+}
+
+async function sendDisciplineAlert(trade, violations) {
+  if (!bot || !TELEGRAM_CHAT_ID) return;
+  const hasCritical = violations.some(v => v.severity === 'CRITICAL');
+  const emoji = hasCritical ? '🚨🛑' : '⚠️';
+  
+  let msg = `${emoji} *KAO V2 · DISCIPLINE ALERT*\n\n`;
+  msg += `Trade détecté : *${trade.direction} ${trade.volume} ${trade.symbol}* @ ${trade.entry}\n\n`;
+  msg += `*Violations détectées :*\n`;
+  violations.forEach(v => msg += `  ${v.msg}\n`);
+  msg += `\n`;
+  
+  if (hasCritical) {
+    msg += `🛑 *ACTION RECOMMANDÉE :*\n`;
+    msg += `  ❌ Considère fermer ce trade\n`;
+    msg += `  ❌ Prends une pause de 30 min minimum\n`;
+    msg += `  ✅ Reviens avec calme et plan clair\n`;
+  } else {
+    msg += `💡 *Conseil :*\n`;
+    msg += `  ⚠️ Surveille bien ce trade\n`;
+    msg += `  ⚠️ Respecte ton plan original\n`;
+  }
+  
+  try { await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' }); } catch (e) {}
+}
+
+// ============ V5.0 · STATS BY SETUP ============
+// Track which setups actually win
+
+async function getStatsBySetup(account = null) {
+  if (!pool) return null;
+  try {
+    let q = `
+      SELECT 
+        verdict,
+        COUNT(*) as total,
+        SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) as wins,
+        SUM(CASE WHEN net_profit < 0 THEN 1 ELSE 0 END) as losses,
+        AVG(net_profit) as avg_pnl,
+        SUM(net_profit) as total_pnl,
+        MAX(net_profit) as best,
+        MIN(net_profit) as worst
+      FROM trades 
+      WHERE status = 'closed' AND verdict IS NOT NULL
+    `;
+    const params = [];
+    if (account) {
+      q += ` AND account = $1`;
+      params.push(String(account));
+    }
+    q += ` GROUP BY verdict ORDER BY total_pnl DESC`;
+    const r = await pool.query(q, params);
+    
+    const byVerdict = r.rows.map(row => ({
+      verdict: row.verdict,
+      total: parseInt(row.total),
+      wins: parseInt(row.wins),
+      losses: parseInt(row.losses),
+      win_rate: row.total > 0 ? Math.round((row.wins / row.total) * 100) : 0,
+      avg_pnl: parseFloat(row.avg_pnl) || 0,
+      total_pnl: parseFloat(row.total_pnl) || 0,
+      best: parseFloat(row.best) || 0,
+      worst: parseFloat(row.worst) || 0
+    }));
+    
+    return { byVerdict };
+  } catch (e) {
+    console.error('getStatsBySetup error:', e.message);
+    return null;
+  }
+}
+
+// ============ V5.0 · HEATMAP HEURES/JOURS ============
+
+async function getHeatmap(account = null) {
+  if (!pool) return null;
+  try {
+    let q = `
+      SELECT 
+        EXTRACT(DOW FROM closed_at) as day_of_week,
+        EXTRACT(HOUR FROM closed_at) as hour,
+        COUNT(*) as trades,
+        SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) as wins,
+        SUM(net_profit) as total_pnl
+      FROM trades
+      WHERE status = 'closed'
+    `;
+    const params = [];
+    if (account) {
+      q += ` AND account = $1`;
+      params.push(String(account));
+    }
+    q += ` GROUP BY day_of_week, hour ORDER BY day_of_week, hour`;
+    const r = await pool.query(q, params);
+    
+    return r.rows.map(row => ({
+      day: parseInt(row.day_of_week),  // 0=Sunday, 1=Monday...
+      hour: parseInt(row.hour),
+      trades: parseInt(row.trades),
+      wins: parseInt(row.wins),
+      win_rate: row.trades > 0 ? Math.round((row.wins / row.trades) * 100) : 0,
+      pnl: parseFloat(row.total_pnl) || 0
+    }));
+  } catch (e) {
+    console.error('getHeatmap error:', e.message);
+    return null;
+  }
+}
+
+// ============ V5.0 · P&L EQUITY CURVE ============
+
+async function getEquityCurve(account = null, days = 30) {
+  if (!pool) return null;
+  try {
+    let q = `
+      SELECT 
+        DATE(closed_at) as day,
+        SUM(net_profit) as pnl,
+        COUNT(*) as trades
+      FROM trades
+      WHERE status = 'closed' AND closed_at > NOW() - INTERVAL '${days} days'
+    `;
+    const params = [];
+    if (account) {
+      q += ` AND account = $1`;
+      params.push(String(account));
+    }
+    q += ` GROUP BY DATE(closed_at) ORDER BY day ASC`;
+    const r = await pool.query(q, params);
+    
+    let cumPnL = 0;
+    return r.rows.map(row => {
+      const dayPnL = parseFloat(row.pnl) || 0;
+      cumPnL += dayPnL;
+      return {
+        date: row.day,
+        day_pnl: dayPnL,
+        cumulative_pnl: cumPnL,
+        trades: parseInt(row.trades)
+      };
+    });
+  } catch (e) {
+    console.error('getEquityCurve error:', e.message);
+    return null;
+  }
+}
+
+// ============ V5.0 · DAILY DEBRIEF ============
+
+async function sendDailyDebrief() {
+  if (!bot || !TELEGRAM_CHAT_ID) return;
+  if (!pool) return;
+  
+  try {
+    // Stats du jour pour tous les comptes
+    const r = await pool.query(`
+      SELECT 
+        account,
+        COUNT(*) as total,
+        SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) as wins,
+        SUM(net_profit) as pnl
+      FROM trades
+      WHERE status = 'closed' AND DATE(closed_at) = CURRENT_DATE
+      GROUP BY account
+    `);
+    
+    if (r.rows.length === 0) {
+      // Pas de trades aujourd'hui
+      const msg = `🌙 *KAO V2 · DAILY DEBRIEF*\n\n📅 Aucun trade aujourd'hui.\n💡 Discipline > FOMO. Demain est un autre jour.`;
+      await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' });
+      return;
+    }
+    
+    let msg = `🌙 *KAO V2 · DAILY DEBRIEF*\n\n`;
+    msg += `📅 ${new Date().toLocaleDateString('fr-FR')}\n\n`;
+    
+    for (const row of r.rows) {
+      const accountInfo = cache.accounts[row.account] || {};
+      const profile = detectAccountProfile(accountInfo.balance);
+      const total = parseInt(row.total);
+      const wins = parseInt(row.wins);
+      const pnl = parseFloat(row.pnl) || 0;
+      const wr = total > 0 ? Math.round((wins / total) * 100) : 0;
+      
+      msg += `*${profile?.type || row.account}*\n`;
+      msg += `  Trades : ${total} (${wins}W / ${total - wins}L)\n`;
+      msg += `  Win rate : ${wr}%\n`;
+      msg += `  P&L : ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}\n`;
+      
+      if (profile) {
+        const targetPct = Math.round((pnl / profile.daily_target) * 100);
+        const consistencyPct = Math.round((pnl / profile.max_best_day) * 100);
+        msg += `  Target : ${targetPct}% / Plafond : ${consistencyPct}%\n`;
+        if (pnl > profile.max_best_day) {
+          msg += `  🚨 *PLAFOND DÉPASSÉ* · risque consistency\n`;
+        }
+      }
+      
+      // Violations
+      const violations = disciplineState.violations[row.account] || 0;
+      if (violations > 0) msg += `  ⚠️ ${violations} violation(s) discipline\n`;
+      msg += `\n`;
+    }
+    
+    // Best/Worst trade
+    const bw = await pool.query(`
+      SELECT symbol, direction, net_profit, verdict
+      FROM trades
+      WHERE status = 'closed' AND DATE(closed_at) = CURRENT_DATE
+      ORDER BY net_profit DESC LIMIT 1
+    `);
+    const ww = await pool.query(`
+      SELECT symbol, direction, net_profit, verdict
+      FROM trades
+      WHERE status = 'closed' AND DATE(closed_at) = CURRENT_DATE
+      ORDER BY net_profit ASC LIMIT 1
+    `);
+    
+    if (bw.rows[0]) {
+      const t = bw.rows[0];
+      msg += `🏆 Best : ${t.direction} ${t.symbol} +$${parseFloat(t.net_profit).toFixed(2)} (${t.verdict || 'manual'})\n`;
+    }
+    if (ww.rows[0] && ww.rows[0].net_profit < 0) {
+      const t = ww.rows[0];
+      msg += `❌ Worst : ${t.direction} ${t.symbol} $${parseFloat(t.net_profit).toFixed(2)} (${t.verdict || 'manual'})\n`;
+    }
+    
+    msg += `\n💡 _Reviens demain avec discipline et patience._`;
+    
+    await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('Daily debrief error:', e.message);
+  }
+}
+
+// ============ V5.0 · WEEKLY DEBRIEF ============
+
+async function sendWeeklyDebrief() {
+  if (!bot || !TELEGRAM_CHAT_ID) return;
+  if (!pool) return;
+  
+  try {
+    const r = await pool.query(`
+      SELECT 
+        account,
+        COUNT(*) as total,
+        SUM(CASE WHEN net_profit > 0 THEN 1 ELSE 0 END) as wins,
+        SUM(net_profit) as pnl
+      FROM trades
+      WHERE status = 'closed' AND closed_at > NOW() - INTERVAL '7 days'
+      GROUP BY account
+    `);
+    
+    if (r.rows.length === 0) return;
+    
+    let msg = `📊 *KAO V2 · WEEKLY DEBRIEF*\n\n`;
+    msg += `📅 7 derniers jours\n\n`;
+    
+    let totalPnL = 0;
+    for (const row of r.rows) {
+      const accountInfo = cache.accounts[row.account] || {};
+      const profile = detectAccountProfile(accountInfo.balance);
+      const pnl = parseFloat(row.pnl) || 0;
+      const wr = row.total > 0 ? Math.round((row.wins / row.total) * 100) : 0;
+      totalPnL += pnl;
+      
+      msg += `*${profile?.type || row.account}*\n`;
+      msg += `  ${row.total} trades · WR ${wr}% · ${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}\n\n`;
+    }
+    
+    msg += `💰 *Total semaine : ${totalPnL >= 0 ? '+' : ''}$${totalPnL.toFixed(2)}*\n\n`;
+    
+    // Top 3 setups
+    const stats = await getStatsBySetup();
+    if (stats?.byVerdict.length) {
+      msg += `🏆 *Top setups :*\n`;
+      stats.byVerdict.slice(0, 3).forEach(s => {
+        msg += `  ${s.verdict} : ${s.total}× · WR ${s.win_rate}% · $${s.total_pnl.toFixed(2)}\n`;
+      });
+      msg += `\n`;
+      const worst = stats.byVerdict.slice(-1)[0];
+      if (worst && worst.total_pnl < 0) {
+        msg += `⚠️ *Setup à éviter :* ${worst.verdict} ($${worst.total_pnl.toFixed(2)})\n`;
+      }
+    }
+    
+    msg += `\n💡 _Bonne semaine à venir. Reste discipliné._`;
+    
+    await bot.sendMessage(TELEGRAM_CHAT_ID, msg, { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('Weekly debrief error:', e.message);
+  }
+}
+
 async function refreshAll() {
   console.log('🔄 Refresh', new Date().toISOString());
   await Promise.all([fetchPrices(), fetchNews(), fetchTrump(), fetchCalendar()]);
@@ -1613,6 +2746,14 @@ initDatabase().then(() => loadFromDatabase()).then(() => refreshAll());
 cron.schedule('*/2 * * * *', refreshAll);
 // News Guard runs every minute to track time-sensitive news windows
 cron.schedule('* * * * *', () => { try { evaluateNewsGuard(); } catch(e) {} });
+// V5.0: Daily debrief at 22:00 Paris time (= 21:00 UTC in winter, 20:00 UTC in summer)
+cron.schedule('0 21 * * *', () => { try { sendDailyDebrief(); } catch(e) {} });
+// V5.0: Weekly debrief Sunday 21:00 Paris
+cron.schedule('0 21 * * 0', () => { try { sendWeeklyDebrief(); } catch(e) {} });
+// V5.1: Pre-event briefings (1h and 30min before events)
+cron.schedule('* * * * *', () => { try { checkPreEventBriefings(); } catch(e) {} });
+// V5.1: Breaking news detector every minute
+cron.schedule('* * * * *', () => { try { checkBreakingNews(); } catch(e) {} });
 
 app.get('/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'dashboard.html')));
 app.get('/world', (req, res) => res.sendFile(path.join(__dirname, 'world.html')));
@@ -1632,6 +2773,7 @@ app.get('/api/all', async (req, res) => {
     brokerPrice: cache.brokerPrice, brokerPriceTime: cache.brokerPriceTime, brokerSymbol: cache.brokerSymbol,
     marketData: cache.marketData, activeConfluences: cache.activeConfluences,
     newsGuard: newsGuardState,
+    discipline: { violations: disciplineState.violations, lastResetDate: disciplineState.lastResetDate },
     lastUpdate: cache.lastUpdate
   });
 });
@@ -1674,6 +2816,35 @@ app.get('/api/confluences', (req, res) => res.json({
 }));
 app.get('/api/refresh', async (req, res) => { await refreshAll(); res.json({ ok: true }); });
 
+// V5.0: Stats by setup endpoint
+app.get('/api/stats/setups/:account?', async (req, res) => {
+  const stats = await getStatsBySetup(req.params.account);
+  res.json(stats || { error: 'DB not available' });
+});
+
+// V5.0: Heatmap endpoint
+app.get('/api/heatmap/:account?', async (req, res) => {
+  const heatmap = await getHeatmap(req.params.account);
+  res.json(heatmap || { error: 'DB not available' });
+});
+
+// V5.0: Equity curve endpoint
+app.get('/api/equity/:account?', async (req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const curve = await getEquityCurve(req.params.account, days);
+  res.json(curve || { error: 'DB not available' });
+});
+
+// V5.0: Force daily debrief (test)
+app.get('/api/debrief/daily', async (req, res) => {
+  await sendDailyDebrief();
+  res.json({ ok: true });
+});
+app.get('/api/debrief/weekly', async (req, res) => {
+  await sendWeeklyDebrief();
+  res.json({ ok: true });
+});
+
 // v4.9: Manual cleanup endpoint - mark all 'open' trades as closed_unknown
 // Use this if you need to force a clean state from dashboard
 app.get('/api/trade/cleanup', async (req, res) => {
@@ -1696,6 +2867,11 @@ app.post('/api/price', checkAuth, (req, res) => {
   cache.brokerPrice = mid || bid;
   cache.brokerPriceTime = Date.now();
   cache.brokerSymbol = symbol;
+  // V5.1: Track for abnormal movement detection
+  try {
+    recordPriceForAnomaly(cache.brokerPrice);
+    detectAbnormalMovement().catch(() => {});
+  } catch (e) {}
   // Re-scan setups with new price (async, don't wait)
   scanAndAlert().catch(() => {});
   res.json({ ok: true });
@@ -1741,6 +2917,8 @@ app.post('/api/trade/new', checkAuth, async (req, res) => {
   cache.trades.unshift(trade); cache.trades = cache.trades.slice(0, 50);
   cache.advices.unshift({ ...advice, trade }); cache.advices = cache.advices.slice(0, 100);
   await sendTradeAdviceTelegram(trade, advice);
+  // V5.0: Discipline check
+  try { await checkDisciplineOnNewTrade(trade); } catch (e) { console.error('Discipline:', e.message); }
   res.json({ ok: true, advice });
 });
 
@@ -1755,6 +2933,8 @@ app.post('/api/trade/close', checkAuth, async (req, res) => {
   cache.trades = cache.trades.filter(t => t.ticket !== trade.ticket);
   cache.closedTrades.unshift(trade); cache.closedTrades = cache.closedTrades.slice(0, 100);
   await sendClosedTradeTelegram(trade);
+  // V5.0: Update discipline tracker
+  try { recordClosedTradeForDiscipline(trade); } catch (e) {}
   // CONSISTENCY CHECK
   const alert = await checkConsistencyAlert(trade.account);
   if (alert) await sendConsistencyAlert(trade.account, alert);

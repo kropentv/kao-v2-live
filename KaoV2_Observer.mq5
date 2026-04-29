@@ -11,8 +11,8 @@
 //|                                                                   |
 //|  STILL 100% READ-ONLY · No trading permissions used              |
 //+------------------------------------------------------------------+
-#property copyright "Kao V2 · Observer · v4.9 · Reconciliation"
-#property version   "4.90"
+#property copyright "Kao V2 · Observer · v5.1 · Pre-Event Briefings"
+#property version   "5.10"
 #property strict
 
 input string  ServerURL     = "https://kao-v2-live-production-73ab.up.railway.app";
@@ -351,6 +351,166 @@ void SendMarketData() {
       }
    }
    
+   // ============================================================
+   // V5.0 · ADVANCED INDICATORS
+   // ============================================================
+   
+   // MACD M5 + M15 (main and signal lines)
+   double macd_m5 = GetMACD(gold_symbol, PERIOD_M5, 0, 0);
+   double macd_m5_sig = GetMACD(gold_symbol, PERIOD_M5, 0, 1);
+   double macd_m15 = GetMACD(gold_symbol, PERIOD_M15, 0, 0);
+   double macd_m15_sig = GetMACD(gold_symbol, PERIOD_M15, 0, 1);
+   bool macd_m5_bull_cross = (macd_m5 > macd_m5_sig) && (GetMACD(gold_symbol, PERIOD_M5, 1, 0) <= GetMACD(gold_symbol, PERIOD_M5, 1, 1));
+   bool macd_m5_bear_cross = (macd_m5 < macd_m5_sig) && (GetMACD(gold_symbol, PERIOD_M5, 1, 0) >= GetMACD(gold_symbol, PERIOD_M5, 1, 1));
+   
+   // Stochastic M5 + M15
+   double stoch_m5 = GetStoch(gold_symbol, PERIOD_M5, 0, 0);
+   double stoch_m5_d = GetStoch(gold_symbol, PERIOD_M5, 0, 1);
+   double stoch_m15 = GetStoch(gold_symbol, PERIOD_M15, 0, 0);
+   bool stoch_m5_overbought = stoch_m5 >= 80;
+   bool stoch_m5_oversold = stoch_m5 <= 20;
+   
+   // Bollinger Bands M5 + M15
+   double bb_m5_up, bb_m5_mid, bb_m5_low;
+   GetBB(gold_symbol, PERIOD_M5, 20, 2.0, 0, bb_m5_up, bb_m5_mid, bb_m5_low);
+   double bb_m15_up, bb_m15_mid, bb_m15_low;
+   GetBB(gold_symbol, PERIOD_M15, 20, 2.0, 0, bb_m15_up, bb_m15_mid, bb_m15_low);
+   double bb_m5_width = (bb_m5_mid > 0) ? ((bb_m5_up - bb_m5_low) / bb_m5_mid * 100) : 0;
+   bool bb_squeeze_m5 = bb_m5_width < 0.3;  // Tight squeeze (low volatility, breakout incoming)
+   bool price_above_bb_up = mid > bb_m5_up;  // Overextended
+   bool price_below_bb_low = mid < bb_m5_low; // Overextended down
+   
+   // VWAP du jour
+   double vwap = GetVWAP(gold_symbol);
+   bool above_vwap = mid > vwap;
+   double vwap_diff = vwap > 0 ? (mid - vwap) : 0;
+   
+   // ATR M5
+   double atr_m5 = GetATR(gold_symbol, PERIOD_M5, 14);
+   
+   // ============================================================
+   // V5.0 · CANDLE PATTERNS
+   // ============================================================
+   
+   // Three White Soldiers / Three Black Crows
+   double m5_open_2 = iOpen(gold_symbol, PERIOD_M5, 3);
+   double m5_close_2_val = iClose(gold_symbol, PERIOD_M5, 3);
+   double m5_open_2_val = iOpen(gold_symbol, PERIOD_M5, 2);
+   double m5_close_3 = iClose(gold_symbol, PERIOD_M5, 4);  // For consistency check
+   
+   bool three_soldiers = false;  // 3 bull candles consecutive
+   bool three_crows = false;     // 3 bear candles consecutive
+   double body_2 = MathAbs(m5_close_2_val - m5_open_2);
+   double body_1_check = MathAbs(m5_close_1 - m5_open_1);
+   if (m5_body >= 1.5 && body_1_check >= 1.5 && body_2 >= 1.5) {
+      // All 3 bullish?
+      if (m5_close_0 > m5_open_0 && m5_close_1 > m5_open_1 && m5_close_2_val > m5_open_2) {
+         three_soldiers = true;
+      }
+      // All 3 bearish?
+      if (m5_close_0 < m5_open_0 && m5_close_1 < m5_open_1 && m5_close_2_val < m5_open_2) {
+         three_crows = true;
+      }
+   }
+   
+   // Hammer / Hanging Man (small body + long lower wick)
+   bool hammer = (m5_lower_wick >= m5_body * 2.0 && m5_upper_wick < m5_body * 0.5 && m5_body > 0.5);
+   bool hanging_man = false;  // Same shape but in uptrend = bearish
+   bool inverted_hammer = (m5_upper_wick >= m5_body * 2.0 && m5_lower_wick < m5_body * 0.5 && m5_body > 0.5);
+   bool shooting_star = false;  // Same as inverted hammer but in uptrend
+   // Determine context: hammer in downtrend (bull), hanging in uptrend (bear)
+   if (hammer && h1_trend_up) hanging_man = true;
+   if (inverted_hammer && h1_trend_up) shooting_star = true;
+   
+   // Inside Bar / Outside Bar
+   bool inside_bar = (m5_high_0 < m5_high_1 && m5_low_0 > m5_low_1);  // Current bar inside previous
+   bool outside_bar = (m5_high_0 > m5_high_1 && m5_low_0 < m5_low_1);  // Current bar engulfs previous
+   
+   // ============================================================
+   // V5.0 · ORDER BLOCKS detection (simplified)
+   // ============================================================
+   // Order Block bullish: last bearish candle before strong bullish move (> 5pts)
+   // Order Block bearish: last bullish candle before strong bearish move
+   double ob_bull_high = 0, ob_bull_low = 0;
+   double ob_bear_high = 0, ob_bear_low = 0;
+   for (int k = 1; k < 30; k++) {
+      double ck = iClose(gold_symbol, PERIOD_M5, k);
+      double ok = iOpen(gold_symbol, PERIOD_M5, k);
+      double hk = iHigh(gold_symbol, PERIOD_M5, k);
+      double lk = iLow(gold_symbol, PERIOD_M5, k);
+      // Look 1 bar after for impulse
+      double impulse_close = iClose(gold_symbol, PERIOD_M5, k - 1);
+      double impulse_open = iOpen(gold_symbol, PERIOD_M5, k - 1);
+      double impulse_body = MathAbs(impulse_close - impulse_open);
+      
+      // Bull OB: bearish candle (ck<ok), then strong bull (impulse_close>>impulse_open, body>5pts)
+      if (ob_bull_high == 0 && ck < ok && impulse_close > impulse_open && impulse_body >= 5) {
+         ob_bull_high = hk;
+         ob_bull_low = lk;
+      }
+      // Bear OB: bullish candle, then strong bear
+      if (ob_bear_high == 0 && ck > ok && impulse_close < impulse_open && impulse_body >= 5) {
+         ob_bear_high = hk;
+         ob_bear_low = lk;
+      }
+      if (ob_bull_high > 0 && ob_bear_high > 0) break;
+   }
+   bool near_ob_bull = (ob_bull_low > 0 && mid >= ob_bull_low - 1 && mid <= ob_bull_high + 1);
+   bool near_ob_bear = (ob_bear_low > 0 && mid >= ob_bear_low - 1 && mid <= ob_bear_high + 1);
+   
+   // ============================================================
+   // V5.0 · FVG (Fair Value Gap) detection M5
+   // ============================================================
+   // Bullish FVG: gap between candle[2] high and candle[0] low (skipping middle)
+   // Bearish FVG: gap between candle[2] low and candle[0] high
+   double fvg_bull_top = 0, fvg_bull_bot = 0;
+   double fvg_bear_top = 0, fvg_bear_bot = 0;
+   for (int k = 1; k < 20; k++) {
+      double h_k_plus2 = iHigh(gold_symbol, PERIOD_M5, k + 2);
+      double l_k = iLow(gold_symbol, PERIOD_M5, k);
+      double l_k_plus2 = iLow(gold_symbol, PERIOD_M5, k + 2);
+      double h_k = iHigh(gold_symbol, PERIOD_M5, k);
+      
+      // Bullish FVG: low of newer > high of older (gap between them)
+      if (fvg_bull_top == 0 && l_k > h_k_plus2 && l_k - h_k_plus2 >= 0.5) {
+         fvg_bull_top = l_k;
+         fvg_bull_bot = h_k_plus2;
+      }
+      // Bearish FVG: high of newer < low of older
+      if (fvg_bear_top == 0 && h_k < l_k_plus2 && l_k_plus2 - h_k >= 0.5) {
+         fvg_bear_top = l_k_plus2;
+         fvg_bear_bot = h_k;
+      }
+      if (fvg_bull_top > 0 && fvg_bear_top > 0) break;
+   }
+   bool in_fvg_bull = (fvg_bull_bot > 0 && mid >= fvg_bull_bot && mid <= fvg_bull_top);
+   bool in_fvg_bear = (fvg_bear_bot > 0 && mid >= fvg_bear_bot && mid <= fvg_bear_top);
+   
+   // ============================================================
+   // V5.0 · RSI DIVERGENCE detection
+   // ============================================================
+   // Bearish divergence: price makes higher high, but RSI makes lower high
+   // Bullish divergence: price makes lower low, but RSI makes higher low
+   bool rsi_bear_div = false;
+   bool rsi_bull_div = false;
+   if (n_high >= 2) {
+      // Get RSI at the time of the 2 latest pivots
+      // Approximate: use shift to get RSI when those highs occurred (roughly)
+      double rsi_high_recent = GetRSI(gold_symbol, PERIOD_M5, 14, 1);
+      double rsi_high_prev = GetRSI(gold_symbol, PERIOD_M5, 14, 6);  // ~6 bars back
+      // If price made higher high but RSI made lower high
+      if (pivots_high[0] > pivots_high[1] && rsi_high_recent < rsi_high_prev && rsi_high_recent > 50) {
+         rsi_bear_div = true;
+      }
+   }
+   if (n_low >= 2) {
+      double rsi_low_recent = GetRSI(gold_symbol, PERIOD_M5, 14, 1);
+      double rsi_low_prev = GetRSI(gold_symbol, PERIOD_M5, 14, 6);
+      if (pivots_low[0] < pivots_low[1] && rsi_low_recent > rsi_low_prev && rsi_low_recent < 50) {
+         rsi_bull_div = true;
+      }
+   }
+   
    // === Build JSON ===
    string json = "{";
    json += "\"event\":\"market_data\",";
@@ -360,7 +520,41 @@ void SendMarketData() {
                         rsi_m1, rsi_m5, rsi_m15, rsi_h1);
    json += StringFormat("\"ema50_h1\":%.2f,\"ema200_h1\":%.2f,\"ema50_m15\":%.2f,",
                         ema50_h1, ema200_h1, ema50_m15);
-   json += StringFormat("\"atr_m15\":%.2f,", atr_m15);
+   json += StringFormat("\"atr_m15\":%.2f,\"atr_m5\":%.2f,", atr_m15, atr_m5);
+   // V5.0 indicators
+   json += StringFormat("\"macd_m5\":%.4f,\"macd_m5_sig\":%.4f,\"macd_m15\":%.4f,\"macd_m15_sig\":%.4f,",
+                        macd_m5, macd_m5_sig, macd_m15, macd_m15_sig);
+   json += StringFormat("\"macd_bull_cross\":%s,\"macd_bear_cross\":%s,",
+                        macd_m5_bull_cross ? "true" : "false", macd_m5_bear_cross ? "true" : "false");
+   json += StringFormat("\"stoch_m5\":%.2f,\"stoch_m5_d\":%.2f,\"stoch_m15\":%.2f,",
+                        stoch_m5, stoch_m5_d, stoch_m15);
+   json += StringFormat("\"bb_m5_up\":%.2f,\"bb_m5_mid\":%.2f,\"bb_m5_low\":%.2f,\"bb_m5_width\":%.4f,",
+                        bb_m5_up, bb_m5_mid, bb_m5_low, bb_m5_width);
+   json += StringFormat("\"bb_squeeze_m5\":%s,\"price_above_bb_up\":%s,\"price_below_bb_low\":%s,",
+                        bb_squeeze_m5 ? "true" : "false", price_above_bb_up ? "true" : "false", price_below_bb_low ? "true" : "false");
+   json += StringFormat("\"vwap\":%.2f,\"above_vwap\":%s,\"vwap_diff\":%.2f,",
+                        vwap, above_vwap ? "true" : "false", vwap_diff);
+   // V5.0 patterns
+   json += StringFormat("\"three_soldiers\":%s,\"three_crows\":%s,",
+                        three_soldiers ? "true" : "false", three_crows ? "true" : "false");
+   json += StringFormat("\"hammer\":%s,\"hanging_man\":%s,\"inverted_hammer\":%s,\"shooting_star\":%s,",
+                        hammer ? "true" : "false", hanging_man ? "true" : "false",
+                        inverted_hammer ? "true" : "false", shooting_star ? "true" : "false");
+   json += StringFormat("\"inside_bar\":%s,\"outside_bar\":%s,",
+                        inside_bar ? "true" : "false", outside_bar ? "true" : "false");
+   // V5.0 SMC
+   json += StringFormat("\"ob_bull_high\":%.2f,\"ob_bull_low\":%.2f,\"near_ob_bull\":%s,",
+                        ob_bull_high, ob_bull_low, near_ob_bull ? "true" : "false");
+   json += StringFormat("\"ob_bear_high\":%.2f,\"ob_bear_low\":%.2f,\"near_ob_bear\":%s,",
+                        ob_bear_high, ob_bear_low, near_ob_bear ? "true" : "false");
+   json += StringFormat("\"fvg_bull_top\":%.2f,\"fvg_bull_bot\":%.2f,\"in_fvg_bull\":%s,",
+                        fvg_bull_top, fvg_bull_bot, in_fvg_bull ? "true" : "false");
+   json += StringFormat("\"fvg_bear_top\":%.2f,\"fvg_bear_bot\":%.2f,\"in_fvg_bear\":%s,",
+                        fvg_bear_top, fvg_bear_bot, in_fvg_bear ? "true" : "false");
+   // V5.0 divergences
+   json += StringFormat("\"rsi_bear_div\":%s,\"rsi_bull_div\":%s,",
+                        rsi_bear_div ? "true" : "false", rsi_bull_div ? "true" : "false");
+   // existing volume
    json += StringFormat("\"volume_m5\":%I64d,\"volume_m5_avg\":%I64d,\"volume_m5_max\":%I64d,\"volume_ratio\":%.2f,",
                         vol_m5_0, vol_m5_avg, vol_m5_max, volume_ratio);
    json += StringFormat("\"volume_spike\":%s,\"volume_huge\":%s,",
@@ -468,6 +662,70 @@ double GetEMA(string symbol, ENUM_TIMEFRAMES tf, int period, int shift) {
    IndicatorRelease(handle);
    if (copied <= 0) return 0;
    return buf[0];
+}
+
+// V5.0: MACD - returns main line value
+double GetMACD(string symbol, ENUM_TIMEFRAMES tf, int shift, int buffer_index = 0) {
+   // buffer_index: 0 = MAIN line, 1 = SIGNAL line
+   int handle = iMACD(symbol, tf, 12, 26, 9, PRICE_CLOSE);
+   if (handle == INVALID_HANDLE) return 0;
+   double buf[];
+   ArraySetAsSeries(buf, true);
+   int copied = CopyBuffer(handle, buffer_index, shift, 1, buf);
+   IndicatorRelease(handle);
+   if (copied <= 0) return 0;
+   return buf[0];
+}
+
+// V5.0: Stochastic %K
+double GetStoch(string symbol, ENUM_TIMEFRAMES tf, int shift, int buffer_index = 0) {
+   // buffer_index: 0 = %K, 1 = %D
+   int handle = iStochastic(symbol, tf, 14, 3, 3, MODE_SMA, STO_LOWHIGH);
+   if (handle == INVALID_HANDLE) return 0;
+   double buf[];
+   ArraySetAsSeries(buf, true);
+   int copied = CopyBuffer(handle, buffer_index, shift, 1, buf);
+   IndicatorRelease(handle);
+   if (copied <= 0) return 0;
+   return buf[0];
+}
+
+// V5.0: Bollinger Band - upper, middle, lower
+void GetBB(string symbol, ENUM_TIMEFRAMES tf, int period, double dev, int shift, double &upper, double &middle, double &lower) {
+   upper = 0; middle = 0; lower = 0;
+   int handle = iBands(symbol, tf, period, 0, dev, PRICE_CLOSE);
+   if (handle == INVALID_HANDLE) return;
+   double buf_mid[], buf_up[], buf_low[];
+   ArraySetAsSeries(buf_mid, true); ArraySetAsSeries(buf_up, true); ArraySetAsSeries(buf_low, true);
+   if (CopyBuffer(handle, 0, shift, 1, buf_mid) > 0) middle = buf_mid[0];
+   if (CopyBuffer(handle, 1, shift, 1, buf_up) > 0) upper = buf_up[0];
+   if (CopyBuffer(handle, 2, shift, 1, buf_low) > 0) lower = buf_low[0];
+   IndicatorRelease(handle);
+}
+
+// V5.0: VWAP du jour (calcul manuel · approximation Forex)
+// Cumul : sum(typical_price * volume) / sum(volume) depuis l'ouverture du jour
+double GetVWAP(string symbol, int max_bars = 288) {
+   // 288 bars M5 = 24h (au cas où on a une longue session)
+   double sum_pv = 0;
+   long sum_v = 0;
+   datetime today_start = iTime(symbol, PERIOD_D1, 0);  // Open of today's daily candle
+   if (today_start == 0) return 0;
+   
+   for (int i = 0; i < max_bars; i++) {
+      datetime bar_time = iTime(symbol, PERIOD_M5, i);
+      if (bar_time == 0) break;
+      if (bar_time < today_start) break;  // Past today's open
+      double h = iHigh(symbol, PERIOD_M5, i);
+      double l = iLow(symbol, PERIOD_M5, i);
+      double c = iClose(symbol, PERIOD_M5, i);
+      long v = iVolume(symbol, PERIOD_M5, i);
+      double typical = (h + l + c) / 3.0;
+      sum_pv += typical * v;
+      sum_v += v;
+   }
+   if (sum_v == 0) return 0;
+   return sum_pv / sum_v;
 }
 
 //+------------------------------------------------------------------+
