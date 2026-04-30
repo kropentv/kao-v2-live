@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kao V2 · Setup</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,700;0,900;1,700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--gold:#D4A437;--gold-bright:#F5C842;--gold-dark:#8B6914;--black:#050505;--obsidian:#0E0E10;--ink:#16161A;--smoke:#2A2A32;--bone:#EDE7D9;--bone-dim:#A8A49A;--rust:#E04835;--jade:#5BA872;--jade-deep:#2C5239;--amber:#FFB020}
+  body{background:var(--black);color:var(--bone);font-family:'JetBrains Mono',monospace;min-height:100vh;padding:20px}
+  body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 20% 20%,rgba(212,164,55,.06),transparent 50%);pointer-events:none}
+  .wrap{max-width:900px;margin:0 auto;position:relative;z-index:1}
+  .header{display:flex;align-items:center;gap:14px;margin-bottom:20px;padding-bottom:18px;border-bottom:1px solid var(--smoke)}
+  .brand-mark{width:42px;height:42px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:22px;font-weight:900;color:var(--black);font-style:italic;clip-path:polygon(15% 0,100% 0,85% 100%,0 100%)}
+  h1{font-family:'Fraunces',serif;font-size:22px;font-weight:400}h1 em{font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .nav{margin-left:auto;display:flex;gap:8px}
+  .nav a,.nav button{background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:6px 12px;font-size:10px;letter-spacing:1.5px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;text-decoration:none}
+  .nav a.active{background:var(--gold);color:var(--black);border-color:var(--gold)}
+  h2{font-family:'Fraunces',serif;font-size:24px;font-weight:700;font-style:italic;color:var(--gold-bright);margin-bottom:10px}
+  .subt{color:var(--bone-dim);font-size:13px;margin-bottom:30px}
+  .step{background:var(--obsidian);border:1px solid var(--smoke);border-radius:4px;padding:24px;margin-bottom:14px;position:relative}
+  .step-num{position:absolute;top:-12px;left:20px;background:var(--gold);color:var(--black);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px}
+  .step-title{font-family:'Fraunces',serif;font-size:18px;font-weight:700;font-style:italic;color:var(--gold-bright);margin-bottom:10px;margin-left:30px}
+  .step-content{font-size:13px;line-height:1.6;color:var(--bone)}
+  .step-content strong{color:var(--gold-bright)}
+  .step-content code{background:var(--black);padding:2px 6px;border-radius:2px;font-size:11px;color:var(--gold);word-break:break-all}
+  .field{margin-top:14px}
+  label{display:block;font-size:10px;letter-spacing:2px;color:var(--bone-dim);text-transform:uppercase;margin-bottom:6px;font-weight:700}
+  input{width:100%;background:var(--black);border:1px solid var(--smoke);color:var(--bone);padding:11px 14px;font-family:inherit;font-size:12px;border-radius:2px}
+  input:focus{outline:none;border-color:var(--gold-dark)}
+  .btn{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--black);border:none;padding:11px 20px;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:2px;text-transform:uppercase;margin-top:12px}
+  .btn:hover{filter:brightness(1.1)}
+  .btn-secondary{background:var(--smoke);color:var(--bone)}
+  .download-link{display:inline-block;background:rgba(91,168,114,.15);border:1px solid var(--jade);color:var(--jade);padding:10px 16px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border-radius:2px;text-decoration:none;font-weight:700;margin-top:10px}
+  .alert{padding:12px;background:rgba(212,164,55,.1);border-left:3px solid var(--gold);border-radius:2px;font-size:12px;margin-top:14px}
+  .alert.warn{background:rgba(255,176,32,.1);border-left-color:var(--amber)}
+  .alert.success{background:rgba(91,168,114,.1);border-left-color:var(--jade);color:var(--jade)}
+  .ok-msg{padding:10px;background:rgba(91,168,114,.1);border:1px solid var(--jade);border-radius:2px;color:var(--jade);margin-top:10px;font-size:11px;display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="brand-mark">K</div>
+    <div><h1>Kao <em>V2</em></h1><div style="font-size:9px;letter-spacing:3px;color:var(--gold);text-transform:uppercase">Setup Wizard</div></div>
+    <div class="nav">
+      <a href="/app/dashboard">Dashboard</a>
+      <a href="/app/setup" class="active">Setup</a>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </div>
+  
+  <h2>🎯 Configuration en 5 étapes</h2>
+  <div class="subt">Suit ces étapes dans l'ordre pour activer ton trading personnalisé</div>
+  
+  <div class="step">
+    <div class="step-num">1</div>
+    <div class="step-title">📋 Récupère ton token unique</div>
+    <div class="step-content">
+      Ce token connecte ton EA MT5 à ton compte Kao V2. <strong>Ne le partage à personne.</strong>
+      <div class="alert">
+        <strong>Ton AUTH_TOKEN :</strong><br><code id="userToken">Chargement...</code>
+        <button class="btn-secondary btn" onclick="copyToken()" style="margin-left:10px;padding:6px 12px;font-size:10px">📋 Copier</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="step">
+    <div class="step-num">2</div>
+    <div class="step-title">📞 Crée ton bot Telegram</div>
+    <div class="step-content">
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>Sur Telegram, cherche <strong>@BotFather</strong></li>
+        <li>Tape <code>/newbot</code></li>
+        <li>Choisis un nom (ex: "Pierre Kao Bot") et username (doit finir par _bot)</li>
+        <li>Copie le <strong>Bot Token</strong> donné par BotFather</li>
+        <li>Cherche <strong>@userinfobot</strong>, tape <code>/start</code> · copie ton <strong>Chat ID</strong></li>
+        <li>Ouvre une conversation avec TON bot et tape <code>/start</code> (important !)</li>
+      </ol>
+      <div class="field">
+        <label>Bot Token</label>
+        <input type="text" id="tgToken" placeholder="123456789:ABC-DEF...">
+      </div>
+      <div class="field">
+        <label>Chat ID</label>
+        <input type="text" id="tgChat" placeholder="123456789">
+      </div>
+      <button class="btn" onclick="saveTelegram()">Sauvegarder Telegram</button>
+      <div class="ok-msg" id="tgOk">✅ Telegram sauvegardé</div>
+    </div>
+  </div>
+  
+  <div class="step">
+    <div class="step-num">3</div>
+    <div class="step-title">🤖 Télécharge ton EA MT5</div>
+    <div class="step-content">
+      Le fichier EA configuré avec ton token unique :
+      <a class="download-link" id="downloadEA" href="#" onclick="downloadEA();return false">⬇ Télécharger KaoV2_Observer.mq5</a>
+      <div class="alert warn"><strong>Important :</strong> ne partage pas ce fichier · il contient ton token unique</div>
+    </div>
+  </div>
+  
+  <div class="step">
+    <div class="step-num">4</div>
+    <div class="step-title">⚙️ Installe l'EA dans MT5</div>
+    <div class="step-content">
+      <ol style="padding-left:20px;line-height:1.8">
+        <li>MT5 → <strong>Fichier → Ouvrir le dossier des données</strong></li>
+        <li>Va dans <code>MQL5/Experts/</code></li>
+        <li>Copie le fichier <code>KaoV2_Observer.mq5</code> ici</li>
+        <li>Dans MT5, appuie <strong>F4</strong> (MetaEditor)</li>
+        <li>Double-clic sur le fichier · appuie <strong>F7</strong> pour compiler</li>
+        <li>Vérifie : <strong>"0 error(s), 0 warning(s)"</strong></li>
+        <li>Retour MT5 · onglet <strong>Outils → Options → Experts</strong></li>
+        <li>Coche "Allow WebRequest" et ajoute :<br><code id="serverUrl">https://...</code></li>
+        <li>Glisse-dépose <strong>KaoV2_Observer</strong> sur ton chart Gold</li>
+        <li>Active "Allow Algo Trading" · OK</li>
+      </ol>
+    </div>
+  </div>
+  
+  <div class="step">
+    <div class="step-num">5</div>
+    <div class="step-title">✅ Vérification</div>
+    <div class="step-content">
+      <ul style="padding-left:20px;line-height:1.8">
+        <li>Smiley 🙂 vert en haut à droite du chart MT5</li>
+        <li>Logs onglet "Experts" : <code>=== KAO V2 OBSERVER ACTIVE ===</code></li>
+        <li>Va sur ton <a href="/app/dashboard" style="color:var(--gold-bright)">/app/dashboard</a> · ton compte apparaîtra</li>
+      </ul>
+      <a href="/app/dashboard" class="btn" style="display:inline-block;text-decoration:none;margin-top:14px">Aller au dashboard →</a>
+    </div>
+  </div>
+</div>
+
+<script>
+let user = null;
+
+async function loadUser() {
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
+    if (!res.ok) {
+      window.location.href = '/login';
+      return;
+    }
+    const data = await res.json();
+    user = data.user;
+    document.getElementById('userToken').textContent = user.auth_token || '...';
+    document.getElementById('serverUrl').textContent = window.location.origin;
+    if (user.telegram_token) document.getElementById('tgToken').value = user.telegram_token;
+    if (user.telegram_chat_id) document.getElementById('tgChat').value = user.telegram_chat_id;
+  } catch (e) { window.location.href = '/login'; }
+}
+
+function copyToken() {
+  navigator.clipboard.writeText(user?.auth_token || '');
+  alert('Token copié !');
+}
+
+async function saveTelegram() {
+  try {
+    const res = await fetch('/api/auth/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        telegram_token: document.getElementById('tgToken').value,
+        telegram_chat_id: document.getElementById('tgChat').value
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      const msg = document.getElementById('tgOk');
+      msg.style.display = 'block';
+      setTimeout(() => msg.style.display = 'none', 3000);
+    }
+  } catch (e) { alert('Erreur : ' + e.message); }
+}
+
+function downloadEA() {
+  // Generate a customized .mq5 file with user's token + URL
+  if (!user) return;
+  const url = window.location.origin;
+  const content = generateEA(user.auth_token, url);
+  const blob = new Blob([content], { type: 'text/plain' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = 'KaoV2_Observer_' + (user.username || 'user') + '.mq5';
+  link.click();
+}
+
+function generateEA(token, url) {
+  // Returns a basic EA template with user-specific token
+  return `// KaoV2 Observer · Generated for user: ${user.email}
+// Token: ${token}
+// Server: ${url}
+//
+// Place this file in MQL5/Experts/ then F4 → F7 to compile
+//
+// FULL VERSION : télécharge depuis le dashboard principal de Kao V2
+// Cette version est un placeholder · utilise le KaoV2_Observer.mq5 officiel
+// puis modifie les inputs ServerURL et AuthToken avec :
+//   ServerURL = "${url}"
+//   AuthToken = "${token}"
+`;
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  window.location.href = '/login';
+}
+
+loadUser();
+</script>
+</body>
+</html>

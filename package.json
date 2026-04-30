@@ -1,7 +1,7 @@
 {
   "name": "kao-v2-live",
-  "version": "2.0.0",
-  "description": "Kao V2 V2 with PostgreSQL + consistency alerts",
+  "version": "6.0.0",
+  "description": "Kao V2 SaaS · Multi-users",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -13,7 +13,10 @@
     "rss-parser": "^3.13.0",
     "node-telegram-bot-api": "^0.64.0",
     "node-cron": "^3.0.3",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cookie-parser": "^1.4.6"
   },
   "engines": {
     "node": ">=18"

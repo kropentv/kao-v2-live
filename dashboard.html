@@ -228,6 +228,7 @@
   <div id="miniStatusBar" style="display:none;background:linear-gradient(135deg,rgba(91,168,114,.05),var(--ink));border:1px solid var(--jade-deep);border-radius:2px;padding:6px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-size:10px;font-family:'JetBrains Mono',monospace">
     <span id="miniStatusDot">🟢</span>
     <span id="miniStatusText" style="color:var(--jade);flex:1">Connecté</span>
+    <button id="voiceToggle" onclick="toggleVoice()" style="background:var(--smoke);border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 10px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700">🔇 Voix OFF</button>
     <button onclick="refreshNow()" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 8px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase">Refresh</button>
     <button onclick="toggleConfig()" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 8px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase">⚙ Config</button>
   </div>
@@ -358,6 +359,44 @@
       <div id="heatmapContainer" style="overflow-x:auto">
         <div class="loading">Chargement...</div>
       </div>
+    </div>
+  </div>
+
+  <!-- V6.0 · DAILY PLAN AUTO -->
+  <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:16px 20px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;padding-bottom:10px;border-bottom:1px dashed var(--smoke)">
+      <div>
+        <div style="font-family:'Fraunces',serif;font-size:14px;font-weight:700;font-style:italic;color:var(--gold-bright)">🌅 Daily Plan</div>
+        <div style="font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase">Briefing du jour</div>
+      </div>
+    </div>
+    <div id="dailyPlanContent"><div class="loading">Chargement...</div></div>
+  </div>
+
+  <!-- V6.0 · ANALYTICS GRID (Comparison + Replay + Backtest) -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px" class="v6-grid">
+    <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:14px 16px">
+      <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed var(--smoke)">
+        <div style="font-family:'Fraunces',serif;font-size:13px;font-weight:700;font-style:italic;color:var(--gold-bright)">⚖️ Comparaison</div>
+        <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">Setups vs Résultats</div>
+      </div>
+      <div id="comparisonStats"><div class="loading">--</div></div>
+    </div>
+    
+    <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:14px 16px">
+      <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed var(--smoke)">
+        <div style="font-family:'Fraunces',serif;font-size:13px;font-weight:700;font-style:italic;color:var(--gold-bright)">🎬 Replay Setups</div>
+        <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">Win rate visuel</div>
+      </div>
+      <div id="replayContent"><div class="loading">--</div></div>
+    </div>
+    
+    <div style="background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:14px 16px">
+      <div style="margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed var(--smoke)">
+        <div style="font-family:'Fraunces',serif;font-size:13px;font-weight:700;font-style:italic;color:var(--gold-bright)">🧪 Backtest</div>
+        <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">Si seulement A+/A++</div>
+      </div>
+      <div id="backtestContent"><div class="loading">--</div></div>
     </div>
   </div>
 
@@ -1467,6 +1506,308 @@ fetchAll();
 loadAnalytics();
 setInterval(fetchAll, 30000);
 setInterval(loadAnalytics, 60000);
+
+// ============ V6.0 · TIER 1+2+3 FEATURES ============
+
+// ===== TIER 1 #1 · NOTIFICATIONS VOCALES =====
+let voiceEnabled = localStorage.getItem('kaoVoice') === 'true';
+let lastSpokenAlerts = new Set();
+
+function speak(text) {
+  if (!voiceEnabled || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'fr-FR';
+  u.rate = 1.1;
+  u.pitch = 1;
+  u.volume = 0.9;
+  window.speechSynthesis.speak(u);
+}
+
+function checkVocalAlerts(confluences) {
+  if (!voiceEnabled || !confluences) return;
+  confluences.forEach(c => {
+    const key = `${c.alertKey}_${Math.round(c.entry)}`;
+    if (lastSpokenAlerts.has(key)) return;
+    if (c.score < 75) return;
+    lastSpokenAlerts.add(key);
+    if (lastSpokenAlerts.size > 50) {
+      const arr = Array.from(lastSpokenAlerts);
+      lastSpokenAlerts.clear();
+      arr.slice(-25).forEach(i => lastSpokenAlerts.add(i));
+    }
+    const direction = c.type === 'SHORT' ? 'short' : 'achat';
+    const setupName = (c.label || '').replace(/[🎯🔥⭐🔻🔁🔄📉💀⚡🔴🟢📦🪞📊📍🎯⚔️🚀]/g, '').trim();
+    const text = `Setup ${c.grade}, ${direction} Gold à ${c.entry.toFixed(0)}`;
+    speak(text);
+  });
+}
+
+function toggleVoice() {
+  voiceEnabled = !voiceEnabled;
+  localStorage.setItem('kaoVoice', voiceEnabled);
+  const btn = document.getElementById('voiceToggle');
+  if (btn) {
+    btn.textContent = voiceEnabled ? '🔊 Voix ON' : '🔇 Voix OFF';
+    btn.style.background = voiceEnabled ? 'var(--jade)' : 'var(--smoke)';
+    btn.style.color = voiceEnabled ? 'white' : 'var(--bone-dim)';
+  }
+  if (voiceEnabled) speak('Notifications vocales activées');
+}
+
+// ===== TIER 1 #2 · SOUNDS PWA =====
+function playBeep(type = 'normal') {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    
+    if (type === 'critical') {
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1320, ctx.currentTime + 0.15);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.3);
+    } else if (type === 'good') {
+      osc.frequency.setValueAtTime(587, ctx.currentTime);
+      osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
+    } else {
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+    }
+    
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+  } catch (e) {}
+}
+
+// ===== TIER 1 #3 · CODE COULEURS SETUPS =====
+function getSetupTypeColor(label) {
+  if (!label) return 'var(--gold)';
+  const l = label.toLowerCase();
+  if (l.includes('sweep') || l.includes('liquidity')) return '#A970FF';  // violet
+  if (l.includes('order block') || l.includes('ob ')) return '#5BA872';  // jade
+  if (l.includes('divergence') || l.includes('div')) return '#4A9FD1';   // azure
+  if (l.includes('squeeze') || l.includes('bb ')) return '#FFB020';      // amber
+  if (l.includes('fvg') || l.includes('gap')) return '#FF6B9D';          // pink
+  if (l.includes('vwap')) return '#D4A437';                              // gold
+  if (l.includes('choch') || l.includes('reversal')) return '#E04835';   // rust
+  if (l.includes('bos')) return '#8B6914';                               // gold-dark
+  if (l.includes('marubozu') || l.includes('john wick')) return '#F5C842';
+  if (l.includes('three soldiers') || l.includes('three crows')) return '#8B2416';
+  return 'var(--gold)';
+}
+
+// ===== TIER 1 #4 · AUTO-RELOAD SMART =====
+let consecutiveFailures = 0;
+const originalFetchAll = fetchAll;
+async function smartFetchAll() {
+  try {
+    await originalFetchAll();
+    consecutiveFailures = 0;
+  } catch (e) {
+    consecutiveFailures++;
+    if (consecutiveFailures > 5) {
+      setStatus('err', '🔄 Reconnexion en cours... (' + consecutiveFailures + ')');
+      setTimeout(smartFetchAll, 5000);
+    }
+  }
+}
+
+// ===== TIER 1 #5 · COMPARAISON SETUPS VS RÉSULTATS =====
+async function loadComparison() {
+  try {
+    const res = await fetch(API + '/api/stats/setups');
+    const data = await res.json();
+    const container = document.getElementById('comparisonStats');
+    if (!container) return;
+    if (!data.byVerdict || data.byVerdict.length === 0) {
+      container.innerHTML = '<div class="loading">Pas encore de données comparatives</div>';
+      return;
+    }
+    const sorted = [...data.byVerdict].sort((a, b) => b.win_rate - a.win_rate);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="padding:10px;background:rgba(91,168,114,.1);border-left:3px solid var(--jade);border-radius:2px">
+          <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">🏆 Meilleur grade</div>
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--jade);margin-top:4px">${best.verdict}</div>
+          <div style="font-size:11px;color:var(--bone-dim);margin-top:2px">${best.win_rate}% WR · ${best.total} trades · +$${best.total_pnl.toFixed(0)}</div>
+        </div>
+        <div style="padding:10px;background:rgba(224,72,53,.1);border-left:3px solid var(--rust);border-radius:2px">
+          <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">⚠️ À éviter</div>
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--rust);margin-top:4px">${worst.verdict}</div>
+          <div style="font-size:11px;color:var(--bone-dim);margin-top:2px">${worst.win_rate}% WR · ${worst.total} trades · ${worst.total_pnl >= 0 ? '+' : ''}$${worst.total_pnl.toFixed(0)}</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--bone);background:rgba(212,164,55,.06);padding:10px;border-left:2px solid var(--gold);border-radius:2px">
+        💡 <strong>Conseil :</strong> Privilégie tes setups <strong style="color:var(--jade)">${best.verdict}</strong>, évite ou skip <strong style="color:var(--rust)">${worst.verdict}</strong>.
+      </div>
+    `;
+  } catch (e) {}
+}
+
+// ===== TIER 2 #1 · DAILY PLAN AUTO MATIN =====
+async function loadDailyPlan() {
+  try {
+    const all = await fetch(API + '/api/all').then(r => r.json());
+    const container = document.getElementById('dailyPlanContent');
+    if (!container) return;
+    
+    const md = all.marketData || {};
+    const matrix = all.matrix || {};
+    const calendar = (all.calendar || []).filter(e => e.warn);
+    const goldPrice = md.mid || all.brokerPrice || all.prices?.XAUUSD?.price || 0;
+    
+    const trend = md.ema50_h1 > md.ema200_h1 ? 'HAUSSIER ↑' : 'BAISSIER ↓';
+    const trendColor = md.ema50_h1 > md.ema200_h1 ? 'var(--jade)' : 'var(--rust)';
+    
+    const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    
+    container.innerHTML = `
+      <div style="font-size:11px;color:var(--bone-dim);margin-bottom:10px;letter-spacing:1px">📅 ${today}</div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div style="padding:10px;background:var(--obsidian);border-radius:2px">
+          <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">Prix Gold</div>
+          <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:700;color:var(--gold-bright);margin-top:4px">${goldPrice.toFixed(2)}</div>
+        </div>
+        <div style="padding:10px;background:var(--obsidian);border-radius:2px">
+          <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase">Trend H1</div>
+          <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:700;color:${trendColor};margin-top:4px">${trend}</div>
+        </div>
+      </div>
+      
+      <div style="padding:10px;background:var(--obsidian);border-radius:2px;margin-bottom:10px">
+        <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">Sentiment Macro</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:10px">
+          <div>Sentiment : <strong style="color:${matrix.sentimentClass === 'bull' ? 'var(--jade)' : matrix.sentimentClass === 'bear' ? 'var(--rust)' : 'var(--bone)'}">${matrix.sentiment || '--'}</strong></div>
+          <div>Fed : <strong style="color:${matrix.fedBiasClass === 'bull' ? 'var(--jade)' : matrix.fedBiasClass === 'bear' ? 'var(--rust)' : 'var(--bone)'}">${matrix.fedBias || '--'}</strong></div>
+          <div>USD : <strong style="color:${matrix.usdStrengthClass === 'bull' ? 'var(--rust)' : 'var(--jade)'}">${matrix.usdStrength || '--'}</strong></div>
+          <div>Géopo : <strong>${matrix.geoTension || '--'}</strong></div>
+        </div>
+      </div>
+      
+      <div style="padding:10px;background:var(--obsidian);border-radius:2px;margin-bottom:10px">
+        <div style="font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px">⚠️ News High Impact aujourd'hui</div>
+        ${calendar.length === 0 ? '<div style="font-size:11px;color:var(--bone-dim)">Aucune news high impact</div>' : 
+          calendar.map(e => `<div style="font-size:11px;margin:3px 0">🔴 ${e.time} · ${e.event} (${e.country})</div>`).join('')}
+      </div>
+      
+      <div style="padding:10px;background:rgba(212,164,55,.08);border-left:3px solid var(--gold);border-radius:2px;font-size:11px;line-height:1.6">
+        <strong style="color:var(--gold-bright)">💡 Plan recommandé :</strong><br>
+        ${matrix.reco || 'Suivre les setups A++ et A+ uniquement, respecter consistency et discipline.'}
+      </div>
+    `;
+  } catch (e) {}
+}
+
+// ===== TIER 2 #4 · REPLAY SETUPS HISTORIQUE =====
+async function loadReplay() {
+  try {
+    const stats = await fetch(API + '/api/stats/setups').then(r => r.json());
+    const container = document.getElementById('replayContent');
+    if (!container) return;
+    if (!stats.byVerdict || stats.byVerdict.length === 0) {
+      container.innerHTML = '<div class="loading">Pas d\'historique encore</div>';
+      return;
+    }
+    container.innerHTML = stats.byVerdict.map(s => {
+      const wrColor = s.win_rate >= 60 ? 'var(--jade)' : s.win_rate >= 40 ? 'var(--amber)' : 'var(--rust)';
+      const barWidth = Math.min(100, s.win_rate);
+      return `
+        <div style="padding:8px 10px;background:var(--obsidian);border-radius:2px;margin-bottom:5px">
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:4px">
+            <span style="font-family:'Fraunces',serif;font-style:italic;color:var(--gold-bright);font-weight:700">${s.verdict}</span>
+            <span style="color:${wrColor};font-weight:700">${s.win_rate}% WR</span>
+          </div>
+          <div style="height:4px;background:var(--black);border-radius:2px;overflow:hidden">
+            <div style="height:100%;background:${wrColor};width:${barWidth}%"></div>
+          </div>
+          <div style="font-size:9px;color:var(--bone-dim);margin-top:3px">${s.total} trades · Avg $${s.avg_pnl.toFixed(1)} · Total ${s.total_pnl >= 0 ? '+' : ''}$${s.total_pnl.toFixed(0)}</div>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {}
+}
+
+// ===== TIER 2 #5 · BACKTEST HYPOTHÉTIQUE =====
+async function loadBacktest() {
+  try {
+    const stats = await fetch(API + '/api/stats/setups').then(r => r.json());
+    const container = document.getElementById('backtestContent');
+    if (!container) return;
+    if (!stats.byVerdict || stats.byVerdict.length === 0) {
+      container.innerHTML = '<div class="loading">Pas assez de data</div>';
+      return;
+    }
+    
+    const aplus = stats.byVerdict.filter(s => s.verdict === 'A++' || s.verdict === 'A+');
+    const aplusPnl = aplus.reduce((sum, s) => sum + s.total_pnl, 0);
+    const aplusTrades = aplus.reduce((sum, s) => sum + s.total, 0);
+    const aOnly = stats.byVerdict.filter(s => s.verdict === 'A');
+    const aPnl = aOnly.reduce((sum, s) => sum + s.total_pnl, 0);
+    const aTrades = aOnly.reduce((sum, s) => sum + s.total, 0);
+    const totalPnl = stats.byVerdict.reduce((sum, s) => sum + s.total_pnl, 0);
+    const totalTrades = stats.byVerdict.reduce((sum, s) => sum + s.total, 0);
+    
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:10px">
+        <div style="padding:10px;background:var(--obsidian);border-left:3px solid var(--jade);border-radius:2px">
+          <div style="color:var(--bone-dim);letter-spacing:1px">A+/A++ ONLY</div>
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--jade);margin-top:3px">${aplusPnl >= 0 ? '+' : ''}$${aplusPnl.toFixed(0)}</div>
+          <div style="font-size:9px;color:var(--bone-dim)">${aplusTrades} trades</div>
+        </div>
+        <div style="padding:10px;background:var(--obsidian);border-left:3px solid var(--amber);border-radius:2px">
+          <div style="color:var(--bone-dim);letter-spacing:1px">A SEULEMENT</div>
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--amber);margin-top:3px">${aPnl >= 0 ? '+' : ''}$${aPnl.toFixed(0)}</div>
+          <div style="font-size:9px;color:var(--bone-dim)">${aTrades} trades</div>
+        </div>
+        <div style="padding:10px;background:var(--obsidian);border-left:3px solid var(--gold);border-radius:2px">
+          <div style="color:var(--bone-dim);letter-spacing:1px">TOUS GRADES</div>
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--gold);margin-top:3px">${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(0)}</div>
+          <div style="font-size:9px;color:var(--bone-dim)">${totalTrades} trades</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;padding:10px;background:rgba(212,164,55,.06);border-left:2px solid var(--gold);border-radius:2px;font-size:11px;line-height:1.6">
+        💡 <strong>Si tu n'avais pris que les A+/A++ :</strong> ${aplusPnl >= totalPnl ? `tu aurais fait ${(aplusPnl - totalPnl).toFixed(0)}$ de plus` : `tu aurais perdu ${(totalPnl - aplusPnl).toFixed(0)}$ vs total`}
+      </div>
+    `;
+  } catch (e) {}
+}
+
+// Hook into renderSmartConfluences for vocal + sound + colors
+const originalRenderSmartConfluences = renderSmartConfluences;
+renderSmartConfluences = function(confluences, marketData, marketDataTime) {
+  originalRenderSmartConfluences(confluences, marketData, marketDataTime);
+  // Trigger vocal + sound for new A++ setups
+  if (confluences && confluences.length > 0) {
+    const newAplus = confluences.filter(c => 
+      (c.grade === 'A++' || c.grade === 'A+') && !c.onCooldown
+    );
+    if (newAplus.length > 0) {
+      checkVocalAlerts(newAplus);
+      const critical = newAplus.find(c => c.grade === 'A++');
+      if (critical && !lastSpokenAlerts.has('beep_' + critical.alertKey)) {
+        playBeep('critical');
+        lastSpokenAlerts.add('beep_' + critical.alertKey);
+      }
+    }
+  }
+};
+
+// Load V6 widgets
+loadDailyPlan();
+loadComparison();
+loadReplay();
+loadBacktest();
+setInterval(() => {
+  loadDailyPlan();
+  loadComparison();
+  loadReplay();
+  loadBacktest();
+}, 60000);  // Every minute
 </script>
 </body>
 </html>

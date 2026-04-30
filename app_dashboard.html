@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kao V2 · Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,700;0,900;1,700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--gold:#D4A437;--gold-bright:#F5C842;--gold-dark:#8B6914;--black:#050505;--obsidian:#0E0E10;--ink:#16161A;--smoke:#2A2A32;--bone:#EDE7D9;--bone-dim:#A8A49A;--rust:#E04835;--jade:#5BA872;--jade-deep:#2C5239;--amber:#FFB020}
+  body{background:var(--black);color:var(--bone);font-family:'JetBrains Mono',monospace;padding:16px;min-height:100vh}
+  body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 20% 20%,rgba(212,164,55,.06),transparent 50%);pointer-events:none}
+  .wrap{max-width:1400px;margin:0 auto;position:relative;z-index:1}
+  .header{display:flex;align-items:center;gap:14px;padding:18px 22px;background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--gold-dark);border-radius:2px;margin-bottom:16px}
+  .brand-mark{width:42px;height:42px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:22px;font-weight:900;color:var(--black);font-style:italic;clip-path:polygon(15% 0,100% 0,85% 100%,0 100%)}
+  h1{font-family:'Fraunces',serif;font-size:22px;font-weight:400}h1 em{font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .nav{margin-left:auto;display:flex;gap:8px;align-items:center}
+  .username{font-size:11px;color:var(--bone-dim);margin-right:10px}
+  .nav a,.nav button{background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:6px 12px;font-size:10px;letter-spacing:1.5px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;text-decoration:none}
+  .nav a.active{background:var(--gold);color:var(--black);border-color:var(--gold)}
+  .panel{background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:18px 22px;margin-bottom:14px}
+  .panel-title{font-family:'Fraunces',serif;font-size:14px;font-weight:700;font-style:italic;color:var(--gold-bright);margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed var(--smoke)}
+  .panel-title::before{content:'◆ ';color:var(--gold)}
+  .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px}
+  .stat{background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--smoke);border-radius:2px;padding:16px}
+  .stat-label{font-size:9px;color:var(--bone-dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+  .stat-value{font-family:'Fraunces',serif;font-size:28px;font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .stat-value.positive{color:var(--jade)}.stat-value.negative{color:var(--rust)}
+  .trade-card{padding:12px 14px;background:var(--obsidian);border:1px solid var(--smoke);border-left:3px solid var(--smoke);border-radius:2px;margin-bottom:8px}
+  .trade-card.BUY{border-left-color:var(--jade)}
+  .trade-card.SELL{border-left-color:var(--rust)}
+  .trade-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:11px}
+  .trade-direction{padding:3px 8px;font-size:10px;font-weight:700;letter-spacing:1.5px;border-radius:2px}
+  .trade-direction.BUY{background:rgba(91,168,114,.15);color:var(--jade)}
+  .trade-direction.SELL{background:rgba(224,72,53,.15);color:var(--rust)}
+  .pl{font-family:'Fraunces',serif;font-weight:700;font-style:italic}
+  .pl.positive{color:var(--jade)}.pl.negative{color:var(--rust)}
+  .empty{padding:40px;text-align:center;color:var(--bone-dim);font-size:11px}
+  .levels-form{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end}
+  input,select{background:var(--black);border:1px solid var(--smoke);color:var(--bone);padding:8px 10px;font-family:inherit;font-size:12px;border-radius:2px}
+  input:focus,select:focus{outline:none;border-color:var(--gold-dark)}
+  .btn{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--black);border:none;padding:9px 14px;font-family:inherit;font-size:10px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:2px;text-transform:uppercase}
+  .level-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:var(--obsidian);border:1px solid var(--smoke);border-radius:2px;margin-bottom:6px}
+  .level-info{font-size:12px}
+  .level-info strong{color:var(--gold-bright)}
+  .delete-btn{background:transparent;border:1px solid var(--rust);color:var(--rust);padding:4px 10px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase}
+  label{display:block;font-size:9px;color:var(--bone-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="brand-mark">K</div>
+    <div><h1>Kao <em>V2</em></h1><div style="font-size:9px;letter-spacing:3px;color:var(--gold);text-transform:uppercase">My Dashboard</div></div>
+    <div class="nav">
+      <span class="username" id="username">--</span>
+      <a href="/app/dashboard" class="active">Dashboard</a>
+      <a href="/app/setup">Setup</a>
+      <button onclick="logout()">Logout</button>
+    </div>
+  </div>
+  
+  <div class="stats-grid">
+    <div class="stat"><div class="stat-label">P&L Aujourd'hui</div><div class="stat-value" id="todayPl">$0</div></div>
+    <div class="stat"><div class="stat-label">Trades Ouverts</div><div class="stat-value" id="openCount">0</div></div>
+    <div class="stat"><div class="stat-label">Win Rate (7j)</div><div class="stat-value" id="winRate">--</div></div>
+    <div class="stat"><div class="stat-label">P&L Total</div><div class="stat-value" id="totalPl">$0</div></div>
+  </div>
+  
+  <div class="panel">
+    <div class="panel-title">📊 Mes Trades Ouverts</div>
+    <div id="openTrades"><div class="empty">Aucun trade ouvert · les trades apparaitront dès que ton EA MT5 enverra des données</div></div>
+  </div>
+  
+  <div class="panel">
+    <div class="panel-title">📜 Mon Historique</div>
+    <div id="closedTrades"><div class="empty">Pas encore d'historique</div></div>
+  </div>
+  
+  <div class="panel">
+    <div class="panel-title">🎯 Mes Niveaux Custom</div>
+    <div style="margin-bottom:14px">
+      <div class="levels-form">
+        <div><label>Nom</label><input type="text" id="levelName" placeholder="Resistance H1"></div>
+        <div><label>Prix</label><input type="number" step="0.01" id="levelValue" placeholder="4850.00"></div>
+        <div><label>Type</label><select id="levelType">
+          <option value="resistance">Résistance</option>
+          <option value="support">Support</option>
+          <option value="pivot">Pivot</option>
+          <option value="critical">Critique</option>
+        </select></div>
+        <button class="btn" onclick="addLevel()">+ Ajouter</button>
+      </div>
+    </div>
+    <div id="levelsList"></div>
+  </div>
+</div>
+
+<script>
+let user = null;
+
+async function loadUser() {
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
+    if (!res.ok) { window.location.href = '/login'; return; }
+    const data = await res.json();
+    user = data.user;
+    document.getElementById('username').textContent = '👤 ' + (user.username || user.email);
+  } catch (e) { window.location.href = '/login'; }
+}
+
+async function loadTrades() {
+  try {
+    const res = await fetch('/api/user/trades', { credentials: 'include' });
+    const data = await res.json();
+    
+    document.getElementById('openCount').textContent = data.open?.length || 0;
+    
+    // Open
+    const oc = document.getElementById('openTrades');
+    if (!data.open || data.open.length === 0) {
+      oc.innerHTML = '<div class="empty">Aucun trade ouvert</div>';
+    } else {
+      oc.innerHTML = data.open.map(t => `
+        <div class="trade-card ${t.direction}">
+          <div class="trade-head">
+            <div><span class="trade-direction ${t.direction}">${t.direction}</span> ${t.volume} ${t.symbol}</div>
+            <div style="color:var(--bone-dim);font-size:10px">${new Date(t.opened_at).toLocaleTimeString('fr-FR')}</div>
+          </div>
+          <div style="font-size:11px;color:var(--bone-dim)">Entry ${parseFloat(t.entry).toFixed(2)} · SL ${t.sl > 0 ? parseFloat(t.sl).toFixed(2) : '⚠️'} · TP ${t.tp > 0 ? parseFloat(t.tp).toFixed(2) : '—'}</div>
+        </div>
+      `).join('');
+    }
+    
+    // Closed + stats
+    const cc = document.getElementById('closedTrades');
+    let totalPnl = 0, todayPnl = 0, wins = 0, total = 0;
+    const today = new Date().toDateString();
+    if (data.closed) {
+      data.closed.forEach(t => {
+        const pl = parseFloat(t.net_profit) || 0;
+        totalPnl += pl;
+        if (new Date(t.closed_at).toDateString() === today) todayPnl += pl;
+        total++;
+        if (pl > 0) wins++;
+      });
+    }
+    
+    const todayEl = document.getElementById('todayPl');
+    todayEl.textContent = (todayPnl >= 0 ? '+' : '') + '$' + todayPnl.toFixed(0);
+    todayEl.className = 'stat-value ' + (todayPnl >= 0 ? 'positive' : 'negative');
+    const totalEl = document.getElementById('totalPl');
+    totalEl.textContent = (totalPnl >= 0 ? '+' : '') + '$' + totalPnl.toFixed(0);
+    totalEl.className = 'stat-value ' + (totalPnl >= 0 ? 'positive' : 'negative');
+    document.getElementById('winRate').textContent = total > 0 ? Math.round(wins / total * 100) + '%' : '--';
+    
+    if (!data.closed || data.closed.length === 0) {
+      cc.innerHTML = '<div class="empty">Pas encore d\'historique</div>';
+    } else {
+      cc.innerHTML = data.closed.slice(0, 20).map(t => {
+        const pl = parseFloat(t.net_profit) || 0;
+        return `
+          <div class="trade-card ${t.direction || ''}">
+            <div class="trade-head">
+              <div>${t.symbol} · ${t.volume} lot</div>
+              <div class="pl ${pl >= 0 ? 'positive' : 'negative'}">${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}</div>
+            </div>
+            <div style="font-size:10px;color:var(--bone-dim)">${new Date(t.closed_at).toLocaleString('fr-FR')}</div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch (e) { console.error(e); }
+}
+
+async function loadLevels() {
+  try {
+    const res = await fetch('/api/user/levels', { credentials: 'include' });
+    const data = await res.json();
+    const list = document.getElementById('levelsList');
+    if (!data.levels || data.levels.length === 0) {
+      list.innerHTML = '<div class="empty" style="padding:20px">Aucun niveau custom · ajoute tes propres niveaux Gold</div>';
+      return;
+    }
+    list.innerHTML = data.levels.map(l => {
+      const colors = { resistance: 'var(--rust)', support: 'var(--jade)', pivot: 'var(--amber)', critical: 'var(--gold-bright)' };
+      const c = colors[l.level_type] || 'var(--bone)';
+      return `
+        <div class="level-item">
+          <div class="level-info">
+            <strong style="color:${c}">${l.level_name}</strong> · ${l.level_type.toUpperCase()} · ${parseFloat(l.level_value).toFixed(2)}
+          </div>
+          <button class="delete-btn" onclick="deleteLevel('${l.level_name}')">Supprimer</button>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {}
+}
+
+async function addLevel() {
+  const name = document.getElementById('levelName').value.trim();
+  const value = parseFloat(document.getElementById('levelValue').value);
+  const type = document.getElementById('levelType').value;
+  if (!name || !value) { alert('Nom et prix requis'); return; }
+  try {
+    await fetch('/api/user/levels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ level_name: name, level_value: value, level_type: type })
+    });
+    document.getElementById('levelName').value = '';
+    document.getElementById('levelValue').value = '';
+    loadLevels();
+  } catch (e) { alert('Erreur : ' + e.message); }
+}
+
+async function deleteLevel(name) {
+  if (!confirm('Supprimer ' + name + ' ?')) return;
+  try {
+    await fetch('/api/user/levels/' + encodeURIComponent(name), {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    loadLevels();
+  } catch (e) {}
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  window.location.href = '/login';
+}
+
+loadUser();
+loadTrades();
+loadLevels();
+setInterval(loadTrades, 30000);
+</script>
+</body>
+</html>

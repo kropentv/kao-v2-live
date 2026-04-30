@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kao V2 · Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,400;0,700;0,900;1,700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--gold:#D4A437;--gold-bright:#F5C842;--gold-dark:#8B6914;--black:#050505;--obsidian:#0E0E10;--ink:#16161A;--smoke:#2A2A32;--bone:#EDE7D9;--bone-dim:#A8A49A;--rust:#E04835;--jade:#5BA872;--jade-deep:#2C5239}
+  body{background:var(--black);color:var(--bone);font-family:'JetBrains Mono',monospace;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;position:relative}
+  body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse at 50% 30%,rgba(212,164,55,.08),transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(74,159,209,.04),transparent 50%);pointer-events:none}
+  body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(212,164,55,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(212,164,55,.015) 1px,transparent 1px);background-size:50px 50px;pointer-events:none}
+  .card{position:relative;z-index:1;background:linear-gradient(135deg,var(--obsidian),var(--ink));border:1px solid var(--gold-dark);border-radius:4px;padding:40px;max-width:440px;width:100%;box-shadow:0 0 40px rgba(0,0,0,.5),0 0 60px rgba(212,164,55,.05)}
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:30px}
+  .brand-mark{width:48px;height:48px;background:linear-gradient(135deg,var(--gold),var(--gold-dark));display:flex;align-items:center;justify-content:center;font-family:'Fraunces',serif;font-size:24px;font-weight:900;color:var(--black);font-style:italic;clip-path:polygon(15% 0,100% 0,85% 100%,0 100%)}
+  h1{font-family:'Fraunces',serif;font-size:24px;font-weight:400}
+  h1 em{font-weight:900;font-style:italic;color:var(--gold-bright)}
+  .subtitle{font-size:9px;letter-spacing:4px;color:var(--gold);text-transform:uppercase;margin-top:4px}
+  h2{font-family:'Fraunces',serif;font-size:18px;font-weight:700;font-style:italic;color:var(--gold-bright);margin-bottom:6px}
+  .subt{font-size:11px;color:var(--bone-dim);margin-bottom:24px}
+  .field{margin-bottom:14px}
+  label{display:block;font-size:10px;letter-spacing:2px;color:var(--bone-dim);text-transform:uppercase;margin-bottom:6px;font-weight:700}
+  input{width:100%;background:var(--black);border:1px solid var(--smoke);color:var(--bone);padding:12px 14px;font-family:inherit;font-size:13px;border-radius:2px;transition:border-color .2s}
+  input:focus{outline:none;border-color:var(--gold-dark)}
+  .btn{width:100%;background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--black);border:none;padding:13px;font-family:inherit;font-size:11px;font-weight:700;letter-spacing:2px;cursor:pointer;border-radius:2px;text-transform:uppercase;margin-top:8px;transition:filter .2s}
+  .btn:hover{filter:brightness(1.1)}
+  .btn:disabled{opacity:.5;cursor:wait}
+  .switch{margin-top:18px;text-align:center;font-size:11px;color:var(--bone-dim)}
+  .switch a{color:var(--gold);text-decoration:none;font-weight:700}
+  .err{margin-top:12px;padding:10px 12px;background:rgba(224,72,53,.1);border:1px solid var(--rust);border-radius:2px;color:var(--rust);font-size:11px;display:none}
+  .ok{margin-top:12px;padding:10px 12px;background:rgba(91,168,114,.1);border:1px solid var(--jade-deep);border-radius:2px;color:var(--jade);font-size:11px;display:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="brand-mark">K</div>
+    <div>
+      <h1>Kao <em>V2</em></h1>
+      <div class="subtitle">SaaS Platform</div>
+    </div>
+  </div>
+  <h2>Connexion</h2>
+  <div class="subt">Accède à ton dashboard de trading personnalisé</div>
+  <form id="loginForm">
+    <div class="field"><label>Email</label><input type="email" id="email" required></div>
+    <div class="field"><label>Password</label><input type="password" id="password" required minlength="6"></div>
+    <button class="btn" type="submit" id="submitBtn">Se connecter</button>
+  </form>
+  <div class="err" id="errBox"></div>
+  <div class="ok" id="okBox"></div>
+  <div class="switch">Pas encore de compte ? <a href="/register">S'inscrire</a></div>
+</div>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('submitBtn');
+  const err = document.getElementById('errBox');
+  const ok = document.getElementById('okBox');
+  err.style.display = 'none';
+  ok.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Connexion...';
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email: document.getElementById('email').value, password: document.getElementById('password').value })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      ok.textContent = '✅ Connexion réussie · redirection...';
+      ok.style.display = 'block';
+      setTimeout(() => window.location.href = '/app/dashboard', 800);
+    } else {
+      err.textContent = '❌ ' + (data.error || 'Erreur');
+      err.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Se connecter';
+    }
+  } catch (e) {
+    err.textContent = '❌ ' + e.message;
+    err.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Se connecter';
+  }
+});
+</script>
+</body>
+</html>

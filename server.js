@@ -10,10 +10,14 @@ const Parser = require('rss-parser');
 const cron = require('node-cron');
 const TelegramBot = require('node-telegram-bot-api');
 const { Pool } = require('pg');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser());
 app.use(express.static(path.join(__dirname)));
 
 const parser = new Parser({ timeout: 10000, headers: { 'User-Agent': 'Mozilla/5.0 KaoV2' } });
@@ -58,6 +62,45 @@ async function initDatabase() {
     )`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_trades_account ON trades(account)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_trades_closed ON trades(closed_at)`);
+    
+    // V6.0: SaaS users tables
+    await pool.query(`CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      username VARCHAR(50),
+      auth_token VARCHAR(64) UNIQUE,
+      telegram_token VARCHAR(255),
+      telegram_chat_id VARCHAR(50),
+      created_at TIMESTAMP DEFAULT NOW(),
+      last_login TIMESTAMP
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS user_setups (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      level_name VARCHAR(50),
+      level_value DECIMAL(15,5),
+      level_type VARCHAR(20),
+      created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, level_name)
+    )`);
+    await pool.query(`CREATE TABLE IF NOT EXISTS user_trades (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      ticket BIGINT NOT NULL,
+      account VARCHAR(50), symbol VARCHAR(20), direction VARCHAR(10),
+      volume DECIMAL(10,2), entry DECIMAL(15,5), sl DECIMAL(15,5), tp DECIMAL(15,5),
+      sl_pts DECIMAL(10,2), tp_pts DECIMAL(10,2),
+      opened_at TIMESTAMP, closed_at TIMESTAMP, price_close DECIMAL(15,5),
+      profit DECIMAL(10,2), commission DECIMAL(10,2), swap DECIMAL(10,2),
+      net_profit DECIMAL(10,2), verdict VARCHAR(20), score INTEGER,
+      status VARCHAR(20) DEFAULT 'open', created_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(user_id, ticket)
+    )`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_user_trades_user ON user_trades(user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_token ON users(auth_token)`);
+    
     console.log('✅ Database initialized');
   } catch (e) { console.error('DB init error:', e.message); }
 }
@@ -3014,6 +3057,192 @@ app.get('/api/telegram/test', async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.json({ ok: false, error: e.message }); }
 });
+
+// ============ V6.0 · SAAS AUTHENTICATION ============
+const JWT_SECRET = process.env.JWT_SECRET || (AUTH_TOKEN + '_jwt_secret');
+const crypto = require('crypto');
+
+function generateAuthToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function authMiddleware(req, res, next) {
+  const token = req.cookies?.kao_jwt || req.headers['authorization']?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.userId = decoded.userId;
+    req.userEmail = decoded.email;
+    next();
+  } catch (e) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Register
+app.post('/api/auth/register', async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  const { email, password, username } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password too short (min 6)' });
+  
+  try {
+    const exists = await pool.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (exists.rows.length) return res.status(409).json({ error: 'Email already registered' });
+    
+    const hash = await bcrypt.hash(password, 10);
+    const userToken = generateAuthToken();
+    
+    const result = await pool.query(
+      `INSERT INTO users (email, password_hash, username, auth_token) VALUES ($1, $2, $3, $4) RETURNING id, email, username, auth_token`,
+      [email.toLowerCase(), hash, username || email.split('@')[0], userToken]
+    );
+    
+    const user = result.rows[0];
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+    res.cookie('kao_jwt', token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
+    res.json({ ok: true, user: { id: user.id, email: user.email, username: user.username, auth_token: user.auth_token } });
+  } catch (e) {
+    console.error('Register:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Login
+app.post('/api/auth/login', async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  
+  try {
+    const r = await pool.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+    if (!r.rows.length) return res.status(401).json({ error: 'Invalid credentials' });
+    const user = r.rows[0];
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+    
+    await pool.query('UPDATE users SET last_login = NOW() WHERE id = $1', [user.id]);
+    
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '30d' });
+    res.cookie('kao_jwt', token, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 });
+    res.json({ ok: true, user: { id: user.id, email: user.email, username: user.username, auth_token: user.auth_token } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('kao_jwt');
+  res.json({ ok: true });
+});
+
+// Current user
+app.get('/api/auth/me', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  try {
+    const r = await pool.query('SELECT id, email, username, auth_token, telegram_token, telegram_chat_id FROM users WHERE id = $1', [req.userId]);
+    if (!r.rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: r.rows[0] });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Update user settings
+app.post('/api/auth/settings', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  const { telegram_token, telegram_chat_id, username } = req.body;
+  try {
+    await pool.query(
+      `UPDATE users SET telegram_token = COALESCE($1, telegram_token), telegram_chat_id = COALESCE($2, telegram_chat_id), username = COALESCE($3, username) WHERE id = $4`,
+      [telegram_token, telegram_chat_id, username, req.userId]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// User custom levels
+app.get('/api/user/levels', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  try {
+    const r = await pool.query('SELECT * FROM user_setups WHERE user_id = $1', [req.userId]);
+    res.json({ levels: r.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/user/levels', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  const { level_name, level_value, level_type } = req.body;
+  try {
+    await pool.query(
+      `INSERT INTO user_setups (user_id, level_name, level_value, level_type) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id, level_name) DO UPDATE SET level_value = $3, level_type = $4`,
+      [req.userId, level_name, level_value, level_type]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/user/levels/:name', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  try {
+    await pool.query('DELETE FROM user_setups WHERE user_id = $1 AND level_name = $2', [req.userId, req.params.name]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// User trades (linked by auth_token from EA)
+app.post('/api/user/trade/new', async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  const userToken = req.headers['x-auth-token'];
+  if (!userToken) return res.status(401).json({ error: 'No token' });
+  try {
+    const u = await pool.query('SELECT id FROM users WHERE auth_token = $1', [userToken]);
+    if (!u.rows.length) return res.status(401).json({ error: 'Invalid user token' });
+    const userId = u.rows[0].id;
+    const t = req.body;
+    await pool.query(
+      `INSERT INTO user_trades (user_id, ticket, account, symbol, direction, volume, entry, sl, tp, sl_pts, tp_pts, opened_at, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'open')
+       ON CONFLICT (user_id, ticket) DO NOTHING`,
+      [userId, t.ticket, t.account, t.symbol, t.direction, t.volume, t.entry, t.sl, t.tp, t.sl_pts, t.tp_pts, t.time || new Date()]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/user/trade/close', async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  const userToken = req.headers['x-auth-token'];
+  if (!userToken) return res.status(401).json({ error: 'No token' });
+  try {
+    const u = await pool.query('SELECT id FROM users WHERE auth_token = $1', [userToken]);
+    if (!u.rows.length) return res.status(401).json({ error: 'Invalid user token' });
+    const userId = u.rows[0].id;
+    const t = req.body;
+    await pool.query(
+      `UPDATE user_trades SET status='closed', closed_at=$1, price_close=$2, profit=$3, commission=$4, swap=$5, net_profit=$6 
+       WHERE user_id = $7 AND ticket = $8`,
+      [t.time || new Date(), t.price_close, t.profit, t.commission, t.swap, t.net_profit, userId, t.ticket]
+    );
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/user/trades', authMiddleware, async (req, res) => {
+  if (!pool) return res.status(500).json({ error: 'DB not available' });
+  try {
+    const open = await pool.query("SELECT * FROM user_trades WHERE user_id = $1 AND status = 'open' ORDER BY opened_at DESC", [req.userId]);
+    const closed = await pool.query("SELECT * FROM user_trades WHERE user_id = $1 AND status = 'closed' ORDER BY closed_at DESC LIMIT 50", [req.userId]);
+    res.json({ open: open.rows, closed: closed.rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// SaaS routes
+app.get('/login', (req, res) => res.sendFile(path.join(__dirname, 'login.html')));
+app.get('/register', (req, res) => res.sendFile(path.join(__dirname, 'register.html')));
+app.get('/app', (req, res) => res.redirect('/app/dashboard'));
+app.get('/app/dashboard', (req, res) => res.sendFile(path.join(__dirname, 'app_dashboard.html')));
+app.get('/app/setup', (req, res) => res.sendFile(path.join(__dirname, 'app_setup.html')));
 
 app.listen(PORT, () => {
   console.log(`🚀 Kao V2 v3 on ${PORT} · DB: ${pool ? 'ON' : 'OFF'}`);
