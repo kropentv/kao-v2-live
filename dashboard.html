@@ -216,12 +216,20 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <div class="wrap">
 
-  <div class="config-bar">
+  <div class="config-bar" id="configBar" style="display:none">
     <label>◆ API :</label>
-    <input type="text" id="apiUrl" value="http://localhost:3000" placeholder="https://your-server.railway.app">
+    <input type="text" id="apiUrl" value="" placeholder="https://your-server.railway.app">
     <button onclick="saveConfig()">CONNECT</button>
     <button onclick="refreshNow()">REFRESH</button>
     <div class="status" id="connStatus">⚪ Non connecté</div>
+  </div>
+  
+  <!-- Connection status mini-bar (always visible, shows when connected) -->
+  <div id="miniStatusBar" style="display:none;background:linear-gradient(135deg,rgba(91,168,114,.05),var(--ink));border:1px solid var(--jade-deep);border-radius:2px;padding:6px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;font-size:10px;font-family:'JetBrains Mono',monospace">
+    <span id="miniStatusDot">🟢</span>
+    <span id="miniStatusText" style="color:var(--jade);flex:1">Connecté</span>
+    <button onclick="refreshNow()" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 8px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase">Refresh</button>
+    <button onclick="toggleConfig()" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 8px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase">⚙ Config</button>
   </div>
 
   <div class="header">
@@ -460,8 +468,34 @@
 </div>
 
 <script>
-let API = localStorage.getItem('kaoApi') || 'http://localhost:3000';
+// V5.1: SMART API AUTO-DETECT
+// Priority: 1. Same origin (if served from Railway), 2. localStorage, 3. ask user
+function detectApi() {
+  // 1. If page is served from a real domain (not file://), use same origin
+  if (window.location.protocol !== 'file:' && window.location.hostname !== '' && window.location.hostname !== 'localhost') {
+    return window.location.origin;
+  }
+  // 2. Check localStorage
+  const saved = localStorage.getItem('kaoApi');
+  if (saved && saved !== 'http://localhost:3000') return saved;
+  // 3. Default fallback
+  return 'http://localhost:3000';
+}
+
+let API = detectApi();
+const isAutoDetected = window.location.protocol !== 'file:' && window.location.hostname !== 'localhost';
 document.getElementById('apiUrl').value = API;
+
+// Show config bar only if NOT auto-detected (user might need to change URL)
+if (!isAutoDetected) {
+  document.getElementById('configBar').style.display = 'flex';
+}
+
+function toggleConfig(){
+  const bar = document.getElementById('configBar');
+  bar.style.display = bar.style.display === 'none' ? 'flex' : 'none';
+}
+
 let currentFilter = 'all';
 let allNews = [];
 
@@ -497,6 +531,26 @@ function setStatus(type, msg){
   const el = document.getElementById('connStatus');
   el.className = 'status ' + type;
   el.textContent = msg;
+  
+  // V5.1: Also update mini status bar
+  const miniBar = document.getElementById('miniStatusBar');
+  const miniDot = document.getElementById('miniStatusDot');
+  const miniText = document.getElementById('miniStatusText');
+  if (miniBar && miniDot && miniText) {
+    if (type === 'ok') {
+      miniBar.style.display = 'flex';
+      miniBar.style.borderColor = 'var(--jade-deep)';
+      miniDot.textContent = '🟢';
+      miniText.style.color = 'var(--jade)';
+      miniText.textContent = msg;
+    } else if (type === 'err') {
+      miniBar.style.display = 'flex';
+      miniBar.style.borderColor = 'var(--rust)';
+      miniDot.textContent = '🔴';
+      miniText.style.color = 'var(--rust)';
+      miniText.textContent = msg;
+    }
+  }
 }
 
 async function fetchAll(){
