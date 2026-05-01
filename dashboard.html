@@ -229,6 +229,7 @@
     <span id="miniStatusDot">🟢</span>
     <span id="miniStatusText" style="color:var(--jade);flex:1">Connecté</span>
     <button id="voiceToggle" onclick="toggleVoice()" style="background:var(--smoke);border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 10px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700">🔇 Voix OFF</button>
+    <button onclick="testVoice()" title="Tester la voix" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 10px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase;font-weight:700">🔊 Test</button>
     <button onclick="refreshNow()" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 8px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase">Refresh</button>
     <button onclick="toggleConfig()" style="background:transparent;border:1px solid var(--smoke);color:var(--bone-dim);padding:3px 8px;font-size:9px;letter-spacing:1px;cursor:pointer;border-radius:2px;font-family:inherit;text-transform:uppercase">⚙ Config</button>
   </div>
@@ -1512,15 +1513,74 @@ setInterval(loadAnalytics, 60000);
 // ===== TIER 1 #1 · NOTIFICATIONS VOCALES =====
 let voiceEnabled = localStorage.getItem('kaoVoice') === 'true';
 let lastSpokenAlerts = new Set();
+let voicesLoaded = false;
+let preferredVoice = null;
+
+// Load voices async (Chrome bug : voices arrive asynchronously)
+function loadVoices() {
+  if (!window.speechSynthesis) return;
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    voicesLoaded = true;
+    preferredVoice = voices.find(v => v.lang.startsWith('fr-FR') && v.localService)
+                  || voices.find(v => v.lang.startsWith('fr'))
+                  || voices.find(v => v.lang.startsWith('en'))
+                  || voices[0];
+    console.log('[Voice] Loaded:', voices.length, 'voices · Selected:', preferredVoice?.name, preferredVoice?.lang);
+  }
+}
+if (window.speechSynthesis) {
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+// FIX: Chrome bug · speech synthesis pauses itself after ~15s
+// Keep-alive: resume() every 5 sec to prevent freeze
+setInterval(() => {
+  if (window.speechSynthesis && voiceEnabled) {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+      console.log('[Voice] Resumed (was paused)');
+    }
+  }
+}, 5000);
 
 function speak(text) {
-  if (!voiceEnabled || !window.speechSynthesis) return;
+  if (!voiceEnabled) return;
+  if (!window.speechSynthesis) {
+    console.warn('[Voice] Not supported');
+    return;
+  }
+  
+  // FIX 1: cancel pending speech to avoid queue blocking
+  window.speechSynthesis.cancel();
+  
+  // FIX 2: resume in case Chrome paused it
+  window.speechSynthesis.resume();
+  
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'fr-FR';
-  u.rate = 1.1;
+  if (preferredVoice) {
+    u.voice = preferredVoice;
+    u.lang = preferredVoice.lang;
+  } else {
+    u.lang = 'fr-FR';
+  }
+  u.rate = 1.05;
   u.pitch = 1;
-  u.volume = 0.9;
-  window.speechSynthesis.speak(u);
+  u.volume = 1.0;
+  
+  u.onstart = () => console.log('[Voice] ▶ Speaking:', text);
+  u.onend = () => console.log('[Voice] ✓ Done');
+  u.onerror = (e) => console.error('[Voice] ✗ Error:', e.error || e);
+  
+  // FIX 3: small delay needed in some browsers
+  setTimeout(() => {
+    try {
+      window.speechSynthesis.speak(u);
+    } catch (e) {
+      console.error('[Voice] Speak error:', e);
+    }
+  }, 50);
 }
 
 function checkVocalAlerts(confluences) {
@@ -1536,7 +1596,6 @@ function checkVocalAlerts(confluences) {
       arr.slice(-25).forEach(i => lastSpokenAlerts.add(i));
     }
     const direction = c.type === 'SHORT' ? 'short' : 'achat';
-    const setupName = (c.label || '').replace(/[🎯🔥⭐🔻🔁🔄📉💀⚡🔴🟢📦🪞📊📍🎯⚔️🚀]/g, '').trim();
     const text = `Setup ${c.grade}, ${direction} Gold à ${c.entry.toFixed(0)}`;
     speak(text);
   });
@@ -1551,7 +1610,20 @@ function toggleVoice() {
     btn.style.background = voiceEnabled ? 'var(--jade)' : 'var(--smoke)';
     btn.style.color = voiceEnabled ? 'white' : 'var(--bone-dim)';
   }
-  if (voiceEnabled) speak('Notifications vocales activées');
+  if (voiceEnabled) {
+    // Force voice reload before first speak
+    loadVoices();
+    speak('Notifications vocales activées');
+    // Test queue
+    setTimeout(() => speak('Système prêt'), 1500);
+  } else {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  }
+}
+
+// Test button (helpful for debug)
+function testVoice() {
+  speak('Test, setup A plus plus, short Gold à 4 8 5 0');
 }
 
 // ===== TIER 1 #2 · SOUNDS PWA =====

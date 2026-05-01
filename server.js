@@ -114,7 +114,41 @@ function detectAccountProfile(balance) {
   return { type: 'CUSTOM', daily_target: balance * 0.01, max_best_day: balance * 0.012, payout: balance * 0.08 };
 }
 
-const LEVELS = { major_resistance: 4900, resistance: 4889, kijun_h1: 4850, friday_close: 4834, support: 4790, intermediate_support: 4760, critical_pivot: 4744 };
+// V6.0: Dynamic levels - calculated from EA market data instead of hardcoded
+// Old hardcoded values kept as fallback if no EA data yet
+const LEVELS_FALLBACK = { major_resistance: 4900, resistance: 4889, kijun_h1: 4850, friday_close: 4834, support: 4790, intermediate_support: 4760, critical_pivot: 4744 };
+
+function getDynamicLevels() {
+  const md = cache.marketData || {};
+  const price = md.mid || cache.brokerPrice || 0;
+  if (price === 0) return LEVELS_FALLBACK;
+  
+  // Build from real-time pivots
+  const allHighs = [];
+  const allLows = [];
+  if (md.pivots_high_h1) md.pivots_high_h1.forEach(p => p > 0 && allHighs.push(p));
+  if (md.pivots_high_m15) md.pivots_high_m15.forEach(p => p > 0 && allHighs.push(p));
+  if (md.pivots_low_h1) md.pivots_low_h1.forEach(p => p > 0 && allLows.push(p));
+  if (md.pivots_low_m15) md.pivots_low_m15.forEach(p => p > 0 && allLows.push(p));
+  if (md.pdh > 0) allHighs.push(md.pdh);
+  if (md.pdl > 0) allLows.push(md.pdl);
+  
+  // Sort and pick relevant levels
+  const sortedHighs = allHighs.filter(p => p > price).sort((a, b) => a - b);
+  const sortedLows = allLows.filter(p => p < price).sort((a, b) => b - a);
+  
+  return {
+    major_resistance: sortedHighs[1] || sortedHighs[0] || (price + 50),
+    resistance: sortedHighs[0] || (price + 15),
+    kijun_h1: md.ema50_m15 || sortedHighs[0] || (price + 5),
+    friday_close: md.pdc || price,
+    support: sortedLows[0] || (price - 15),
+    intermediate_support: sortedLows[1] || sortedLows[0] || (price - 30),
+    critical_pivot: sortedLows[2] || sortedLows[1] || (price - 50)
+  };
+}
+
+const LEVELS = LEVELS_FALLBACK;  // Kept for backward compat where used directly
 
 let bot = null;
 if (TELEGRAM_TOKEN) {
@@ -584,10 +618,56 @@ function computeMatrix() {
   const dxyChange = cache.prices?.DXY?.change || 0;
   const usdStrength = dxyChange < -0.3 ? 'WEAK' : dxyChange > 0.3 ? 'STRONG' : 'NEUTRAL';
   const geoTension = news.filter(n => n.category === 'geo' && n.impact === 'high').length >= 2 ? 'HIGH' : 'MODERATE';
-  let reco = 'Attendre setup sur zones clés';
-  if (sentiment === 'BULLISH' && geoTension === 'HIGH') reco = 'Prioriser BUY 4790/4760';
-  else if (sentiment === 'BEARISH') reco = 'Setups SHORT privilégiés';
-  cache.matrix = { sentiment, sentimentClass: sentiment === 'BULLISH' ? 'bull' : sentiment === 'BEARISH' ? 'bear' : 'neutral', fedBias, fedBiasClass: fedBias === 'DOVISH' ? 'bull' : fedBias === 'HAWKISH' ? 'bear' : 'neutral', usdStrength, usdStrengthClass: usdStrength === 'WEAK' ? 'bear' : usdStrength === 'STRONG' ? 'bull' : 'neutral', geoTension, geoTensionClass: geoTension === 'HIGH' ? 'bull' : 'neutral', reco };
+  
+  // V6.0: DYNAMIC LEVELS · use real-time data from EA instead of hardcoded
+  const md = cache.marketData || {};
+  const currentPrice = md.mid || cache.brokerPrice || 0;
+  
+  // Find nearest support and resistance from EA pivots (M15 + H1 prioritaires)
+  const allHighs = [];
+  const allLows = [];
+  if (md.pivots_high_h1) md.pivots_high_h1.forEach(p => p > 0 && allHighs.push(p));
+  if (md.pivots_high_m15) md.pivots_high_m15.forEach(p => p > 0 && allHighs.push(p));
+  if (md.pivots_low_h1) md.pivots_low_h1.forEach(p => p > 0 && allLows.push(p));
+  if (md.pivots_low_m15) md.pivots_low_m15.forEach(p => p > 0 && allLows.push(p));
+  if (md.pdh > 0) allHighs.push(md.pdh);
+  if (md.pdl > 0) allLows.push(md.pdl);
+  if (md.today_high > 0) allHighs.push(md.today_high);
+  if (md.today_low > 0) allLows.push(md.today_low);
+  
+  // Find 2 nearest above and below
+  const resistances = allHighs.filter(p => p > currentPrice).sort((a, b) => a - b).slice(0, 2);
+  const supports = allLows.filter(p => p < currentPrice).sort((a, b) => b - a).slice(0, 2);
+  
+  // Build dynamic reco based on REAL price + sentiment
+  let reco;
+  if (currentPrice === 0) {
+    reco = 'En attente données EA pour calcul niveaux dynamiques';
+  } else if (sentiment === 'BULLISH' && supports.length > 0) {
+    const supText = supports.map(s => s.toFixed(0)).join('/');
+    reco = `Prioriser BUY sur supports ${supText}`;
+  } else if (sentiment === 'BEARISH' && resistances.length > 0) {
+    const resText = resistances.map(r => r.toFixed(0)).join('/');
+    reco = `Setups SHORT sur résistances ${resText}`;
+  } else if (sentiment === 'BULLISH') {
+    reco = 'Bias bullish · attendre pullback sur support pour BUY';
+  } else if (sentiment === 'BEARISH') {
+    reco = 'Bias bearish · attendre rebond sur résistance pour SHORT';
+  } else if (resistances.length > 0 && supports.length > 0) {
+    reco = `Range entre ${supports[0].toFixed(0)} et ${resistances[0].toFixed(0)} · trader les rebonds`;
+  } else {
+    reco = 'Attendre setup sur zones clés';
+  }
+  
+  cache.matrix = { 
+    sentiment, sentimentClass: sentiment === 'BULLISH' ? 'bull' : sentiment === 'BEARISH' ? 'bear' : 'neutral', 
+    fedBias, fedBiasClass: fedBias === 'DOVISH' ? 'bull' : fedBias === 'HAWKISH' ? 'bear' : 'neutral', 
+    usdStrength, usdStrengthClass: usdStrength === 'WEAK' ? 'bear' : usdStrength === 'STRONG' ? 'bull' : 'neutral', 
+    geoTension, geoTensionClass: geoTension === 'HIGH' ? 'bull' : 'neutral', 
+    reco,
+    // Bonus: expose dynamic levels for dashboard
+    dynamicLevels: { resistances, supports, currentPrice }
+  };
 }
 
 async function loadFromDatabase() {
