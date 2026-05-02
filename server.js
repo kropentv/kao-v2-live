@@ -744,6 +744,205 @@ function nearLevel(price, level, tolerance = 1.5) {
   return Math.abs(price - level) <= tolerance;
 }
 
+// ============================================================
+// 🎯 PRECISION RECO MODULE (Option A · Dashboard only)
+// ----------------------------------------------------------
+// Enrichit les setups A++ et A+ avec des prix précis basés sur 
+// les niveaux structurels réels (pivots, OB, FVG, swings).
+// 
+// IMPORTANT: les champs s.entry, s.sl, s.tp1, s.tp2, s.tp3 
+// ne sont PAS modifiés → Telegram et Smart Trader Confluence 
+// continuent de fonctionner exactement comme avant.
+// 
+// Tous les prix précis sont stockés dans s.precision.*
+// Le dashboard les affiche via la nouvelle carte "Action Zone".
+// ============================================================
+function enrichSetupPrecision(s, m) {
+  if (s.grade !== 'A++' && s.grade !== 'A+') return;
+  if (!m || !m.mid) return;
+  
+  const isShort = s.type === 'SHORT';
+  const price = m.mid;
+  const atr = m.atr_m5 || m.atr_m15 || 5;
+  const minSLDistance = Math.max(3, atr * 1.0);
+  const maxSLDistance = atr * 2.5;
+  
+  // ============ ENTRY EXACT ============
+  let exactEntry = price;
+  let entryReason = 'Market price';
+  const candidates = [];
+  
+  if (isShort) {
+    if (m.pivots_high) m.pivots_high.forEach(p => candidates.push({ p, src: 'Pivot M5' }));
+    if (m.pivots_high_m15) m.pivots_high_m15.forEach(p => candidates.push({ p, src: 'Pivot M15' }));
+    if (m.today_high > 0) candidates.push({ p: m.today_high, src: 'Today High' });
+    if (m.pdh > 0) candidates.push({ p: m.pdh, src: 'PDH' });
+    if (m.bb_m5_up > 0) candidates.push({ p: m.bb_m5_up, src: 'BB Upper M5' });
+    if (m.sweep_high && m.sweep_high_level > 0) candidates.push({ p: m.sweep_high_level, src: 'Sweep level' });
+    if (m.ob_bear_low > 0) candidates.push({ p: m.ob_bear_low, src: 'OB Bear bottom' });
+    if (m.fvg_bear_bottom > 0) candidates.push({ p: m.fvg_bear_bottom, src: 'FVG Bear bottom' });
+    if (m.vwap > 0 && Math.abs(price - m.vwap) < 5) candidates.push({ p: m.vwap, src: 'VWAP' });
+    
+    const above = candidates
+      .filter(c => c.p > price - 0.5 && c.p < price + 5)
+      .sort((a, b) => Math.abs(a.p - price) - Math.abs(b.p - price));
+    if (above.length > 0) {
+      exactEntry = above[0].p;
+      entryReason = above[0].src;
+    }
+  } else {
+    if (m.pivots_low) m.pivots_low.forEach(p => candidates.push({ p, src: 'Pivot M5' }));
+    if (m.pivots_low_m15) m.pivots_low_m15.forEach(p => candidates.push({ p, src: 'Pivot M15' }));
+    if (m.today_low > 0) candidates.push({ p: m.today_low, src: 'Today Low' });
+    if (m.pdl > 0) candidates.push({ p: m.pdl, src: 'PDL' });
+    if (m.bb_m5_low > 0) candidates.push({ p: m.bb_m5_low, src: 'BB Lower M5' });
+    if (m.sweep_low && m.sweep_low_level > 0) candidates.push({ p: m.sweep_low_level, src: 'Sweep level' });
+    if (m.ob_bull_high > 0) candidates.push({ p: m.ob_bull_high, src: 'OB Bull top' });
+    if (m.fvg_bull_top > 0) candidates.push({ p: m.fvg_bull_top, src: 'FVG Bull top' });
+    if (m.vwap > 0 && Math.abs(price - m.vwap) < 5) candidates.push({ p: m.vwap, src: 'VWAP' });
+    
+    const below = candidates
+      .filter(c => c.p < price + 0.5 && c.p > price - 5)
+      .sort((a, b) => Math.abs(a.p - price) - Math.abs(b.p - price));
+    if (below.length > 0) {
+      exactEntry = below[0].p;
+      entryReason = below[0].src;
+    }
+  }
+  
+  // Entry zone (±1.5 pts) pour absorber spread
+  const entryZoneLow = exactEntry - 1.5;
+  const entryZoneHigh = exactEntry + 1.5;
+  
+  // ============ SL EXACT (swing-based, avec garde-fous ATR) ============
+  let exactSL = isShort ? exactEntry + minSLDistance : exactEntry - minSLDistance;
+  let slReason = 'ATR fallback';
+  
+  if (isShort) {
+    const swingsAbove = [];
+    if (m.pivots_high) m.pivots_high.forEach(p => p > exactEntry && swingsAbove.push(p));
+    if (m.pivots_high_m15) m.pivots_high_m15.forEach(p => p > exactEntry && swingsAbove.push(p));
+    if (m.today_high > exactEntry) swingsAbove.push(m.today_high);
+    if (m.pdh > exactEntry) swingsAbove.push(m.pdh);
+    
+    if (swingsAbove.length > 0) {
+      const nearestSwing = Math.min(...swingsAbove);
+      const candidate = nearestSwing + 1.0; // 1pt buffer au-dessus du swing
+      const dist = candidate - exactEntry;
+      if (dist >= minSLDistance && dist <= maxSLDistance) {
+        exactSL = candidate;
+        slReason = 'Above swing high';
+      }
+    }
+  } else {
+    const swingsBelow = [];
+    if (m.pivots_low) m.pivots_low.forEach(p => p < exactEntry && swingsBelow.push(p));
+    if (m.pivots_low_m15) m.pivots_low_m15.forEach(p => p < exactEntry && swingsBelow.push(p));
+    if (m.today_low > 0 && m.today_low < exactEntry) swingsBelow.push(m.today_low);
+    if (m.pdl > 0 && m.pdl < exactEntry) swingsBelow.push(m.pdl);
+    
+    if (swingsBelow.length > 0) {
+      const nearestSwing = Math.max(...swingsBelow);
+      const candidate = nearestSwing - 1.0; // 1pt buffer sous le swing
+      const dist = exactEntry - candidate;
+      if (dist >= minSLDistance && dist <= maxSLDistance) {
+        exactSL = candidate;
+        slReason = 'Below swing low';
+      }
+    }
+  }
+  
+  const slDistance = Math.abs(exactEntry - exactSL);
+  
+  // SL manuels: tight (-30%) et wide (+30%)
+  const slManualTight = isShort 
+    ? exactEntry + (slDistance * 0.7) 
+    : exactEntry - (slDistance * 0.7);
+  const slManualWide = isShort 
+    ? exactEntry + (slDistance * 1.3) 
+    : exactEntry - (slDistance * 1.3);
+  
+  // ============ TPs EXACTS (R:R + niveaux opposés) ============
+  let exactTP1, exactTP2, exactTP3;
+  
+  if (isShort) {
+    const supports = [];
+    if (m.pivots_low) m.pivots_low.forEach(p => p < exactEntry && supports.push(p));
+    if (m.pivots_low_m15) m.pivots_low_m15.forEach(p => p < exactEntry && supports.push(p));
+    if (m.pivots_low_h1) m.pivots_low_h1.forEach(p => p < exactEntry && supports.push(p));
+    if (m.pdl > 0 && m.pdl < exactEntry) supports.push(m.pdl);
+    if (m.today_low > 0 && m.today_low < exactEntry) supports.push(m.today_low);
+    if (m.bb_m5_low > 0 && m.bb_m5_low < exactEntry) supports.push(m.bb_m5_low);
+    if (m.vwap > 0 && m.vwap < exactEntry) supports.push(m.vwap);
+    
+    const sorted = [...new Set(supports)].sort((a, b) => b - a);
+    
+    const tp1Target = exactEntry - slDistance * 1.0;
+    exactTP1 = sorted.find(p => p <= tp1Target) || tp1Target;
+    const tp2Target = exactEntry - slDistance * 2.0;
+    exactTP2 = sorted.find(p => p <= tp2Target) || tp2Target;
+    const tp3Target = exactEntry - slDistance * 3.0;
+    exactTP3 = sorted.find(p => p <= tp3Target) || tp3Target;
+  } else {
+    const resistances = [];
+    if (m.pivots_high) m.pivots_high.forEach(p => p > exactEntry && resistances.push(p));
+    if (m.pivots_high_m15) m.pivots_high_m15.forEach(p => p > exactEntry && resistances.push(p));
+    if (m.pivots_high_h1) m.pivots_high_h1.forEach(p => p > exactEntry && resistances.push(p));
+    if (m.pdh > exactEntry) resistances.push(m.pdh);
+    if (m.today_high > exactEntry) resistances.push(m.today_high);
+    if (m.bb_m5_up > 0 && m.bb_m5_up > exactEntry) resistances.push(m.bb_m5_up);
+    if (m.vwap > 0 && m.vwap > exactEntry) resistances.push(m.vwap);
+    
+    const sorted = [...new Set(resistances)].sort((a, b) => a - b);
+    
+    const tp1Target = exactEntry + slDistance * 1.0;
+    exactTP1 = sorted.find(p => p >= tp1Target) || tp1Target;
+    const tp2Target = exactEntry + slDistance * 2.0;
+    exactTP2 = sorted.find(p => p >= tp2Target) || tp2Target;
+    const tp3Target = exactEntry + slDistance * 3.0;
+    exactTP3 = sorted.find(p => p >= tp3Target) || tp3Target;
+  }
+  
+  const invalidation = isShort 
+    ? `Close M15 > ${exactSL.toFixed(2)}`
+    : `Close M15 < ${exactSL.toFixed(2)}`;
+  
+  // ⚠️ ON ÉCRIT TOUT DANS s.precision (objet ISOLÉ)
+  // Les champs s.entry, s.sl, s.tp1, s.tp2, s.tp3 originaux restent INTACTS
+  s.precision = {
+    enabled: true,
+    entryExact: parseFloat(exactEntry.toFixed(2)),
+    entryReason: entryReason,
+    entryZone: {
+      low: parseFloat(entryZoneLow.toFixed(2)),
+      high: parseFloat(entryZoneHigh.toFixed(2))
+    },
+    sl: {
+      auto: parseFloat(exactSL.toFixed(2)),
+      autoReason: slReason,
+      tight: parseFloat(slManualTight.toFixed(2)),
+      wide: parseFloat(slManualWide.toFixed(2)),
+      distancePts: parseFloat(slDistance.toFixed(1))
+    },
+    tp1: {
+      price: parseFloat(exactTP1.toFixed(2)),
+      pts: parseFloat(Math.abs(exactEntry - exactTP1).toFixed(1)),
+      rr: parseFloat((Math.abs(exactEntry - exactTP1) / slDistance).toFixed(2))
+    },
+    tp2: {
+      price: parseFloat(exactTP2.toFixed(2)),
+      pts: parseFloat(Math.abs(exactEntry - exactTP2).toFixed(1)),
+      rr: parseFloat((Math.abs(exactEntry - exactTP2) / slDistance).toFixed(2))
+    },
+    tp3: {
+      price: parseFloat(exactTP3.toFixed(2)),
+      pts: parseFloat(Math.abs(exactEntry - exactTP3).toFixed(1)),
+      rr: parseFloat((Math.abs(exactEntry - exactTP3) / slDistance).toFixed(2))
+    },
+    invalidation: invalidation
+  };
+}
+
 function analyzeSmartLevels() {
   const m = cache.marketData;
   if (!m || !m.mid) return [];
@@ -1770,6 +1969,11 @@ function analyzeSmartLevels() {
       s.confluences.push(`⚠️ Volume faible (${m.volume_ratio.toFixed(1)}x avg) · attention fake move`);
     });
   }
+  
+  // 🎯 PRECISION RECO · enrich A++ and A+ setups with exact prices for dashboard
+  // (Telegram unaffected - reads original s.entry/s.sl/s.tp1)
+  setups.filter(s => s.grade === 'A++' || s.grade === 'A+')
+        .forEach(s => enrichSetupPrecision(s, m));
   
   cache.activeConfluences = setups.filter(s => {
     if (s.score < 50) return false;  // Lower threshold to alert small moves

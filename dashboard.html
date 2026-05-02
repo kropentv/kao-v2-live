@@ -930,9 +930,91 @@ function renderSmartConfluences(confluences, marketData, marketDataTime){
         <div style="margin-top:8px;font-size:10px;color:var(--bone-dim);line-height:1.6">
           ${c.confluences.map(x => `<div>${x}</div>`).join('')}
         </div>
+        ${renderActionZone(c)}
       </div>
     `;
   }).join('');
+  
+  // Bind SL toggle buttons after DOM insertion
+  bindActionZoneToggles();
+}
+
+// ============ 🎯 ACTION ZONE · Precision reco for A++ / A+ setups ============
+function renderActionZone(c) {
+  if (!c.precision || !c.precision.enabled) return '';
+  
+  const p = c.precision;
+  const isShort = c.type === 'SHORT';
+  const dirColor = isShort ? 'var(--rust)' : 'var(--jade)';
+  const setupId = `az-${c.alertKey || Math.random().toString(36).slice(2, 8)}`;
+  
+  return `
+    <div style="margin-top:12px;padding:14px;background:linear-gradient(135deg,rgba(212,164,55,0.08),rgba(0,0,0,0.4));border:1px solid rgba(212,164,55,0.4);border-radius:4px;position:relative">
+      <div style="position:absolute;top:-9px;left:12px;background:var(--obsidian);padding:0 8px;font-size:9px;font-weight:900;letter-spacing:1.5px;color:var(--gold-bright);font-family:'JetBrains Mono',monospace">🎯 ACTION ZONE · PRÉCIS</div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:rgba(0,0,0,.4);border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:11px">
+          <span style="color:var(--bone-dim)">Entry exact</span>
+          <span style="color:${dirColor};font-weight:700">${p.entryExact.toFixed(2)}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:rgba(0,0,0,.4);border-radius:2px;font-family:'JetBrains Mono',monospace;font-size:11px">
+          <span style="color:var(--bone-dim)">SL auto</span>
+          <span style="color:var(--gold);font-weight:700">${p.sl.auto.toFixed(2)} <span style="color:var(--bone-dim);font-weight:400">(${p.sl.distancePts}pts)</span></span>
+        </div>
+      </div>
+      
+      <div style="margin-top:6px;font-size:9px;color:var(--bone-dim);line-height:1.5;font-family:'JetBrains Mono',monospace">
+        Zone: <span style="color:var(--bone)">${p.entryZone.low.toFixed(2)} → ${p.entryZone.high.toFixed(2)}</span> · Source: <span style="color:var(--gold)">${p.entryReason}</span> · SL: <span style="color:var(--gold)">${p.sl.autoReason}</span>
+      </div>
+      
+      <div id="${setupId}-sl" style="display:flex;gap:4px;margin-top:10px">
+        <div class="az-sl-btn" data-target="${setupId}" data-mode="tight" data-val="${p.sl.tight.toFixed(2)}" style="flex:1;padding:6px 4px;background:rgba(224,72,53,.08);border:1px solid rgba(224,72,53,.3);border-radius:2px;color:var(--rust);font-size:9px;font-weight:700;text-align:center;cursor:pointer;font-family:'JetBrains Mono',monospace">
+          TIGHT<br><span style="font-size:11px">${p.sl.tight.toFixed(2)}</span>
+        </div>
+        <div class="az-sl-btn az-sl-active" data-target="${setupId}" data-mode="auto" data-val="${p.sl.auto.toFixed(2)}" style="flex:1;padding:6px 4px;background:rgba(224,72,53,.25);border:1px solid var(--rust);border-radius:2px;color:var(--rust);font-size:9px;font-weight:700;text-align:center;cursor:pointer;font-family:'JetBrains Mono',monospace">
+          AUTO<br><span style="font-size:11px">${p.sl.auto.toFixed(2)}</span>
+        </div>
+        <div class="az-sl-btn" data-target="${setupId}" data-mode="wide" data-val="${p.sl.wide.toFixed(2)}" style="flex:1;padding:6px 4px;background:rgba(224,72,53,.08);border:1px solid rgba(224,72,53,.3);border-radius:2px;color:var(--rust);font-size:9px;font-weight:700;text-align:center;cursor:pointer;font-family:'JetBrains Mono',monospace">
+          WIDE<br><span style="font-size:11px">${p.sl.wide.toFixed(2)}</span>
+        </div>
+      </div>
+      
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:4px">
+        <div style="padding:5px 10px;background:rgba(91,168,114,.1);border-left:3px solid var(--jade);border-radius:2px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px">
+          <span><b style="color:var(--jade)">TP1</b> · ${p.tp1.price.toFixed(2)}</span>
+          <span style="color:var(--bone-dim)">${p.tp1.pts}pts · R:R ${p.tp1.rr}</span>
+        </div>
+        <div style="padding:5px 10px;background:rgba(91,168,114,.08);border-left:3px solid var(--jade);border-radius:2px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.85">
+          <span><b style="color:var(--jade)">TP2</b> · ${p.tp2.price.toFixed(2)}</span>
+          <span style="color:var(--bone-dim)">${p.tp2.pts}pts · R:R ${p.tp2.rr}</span>
+        </div>
+        <div style="padding:5px 10px;background:rgba(91,168,114,.06);border-left:3px solid var(--jade);border-radius:2px;display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.7">
+          <span><b style="color:var(--jade)">TP3</b> · ${p.tp3.price.toFixed(2)}</span>
+          <span style="color:var(--bone-dim)">${p.tp3.pts}pts · R:R ${p.tp3.rr}</span>
+        </div>
+      </div>
+      
+      <div style="margin-top:10px;padding:6px 10px;background:rgba(224,72,53,.08);border-left:3px solid var(--rust);border-radius:2px;font-size:10px;color:#ff8a87;font-family:'JetBrains Mono',monospace">
+        🔻 Invalidation: ${p.invalidation}
+      </div>
+    </div>
+  `;
+}
+
+function bindActionZoneToggles() {
+  document.querySelectorAll('.az-sl-btn').forEach(btn => {
+    btn.onclick = () => {
+      const target = btn.dataset.target;
+      document.querySelectorAll(`.az-sl-btn[data-target="${target}"]`).forEach(b => {
+        b.classList.remove('az-sl-active');
+        b.style.background = 'rgba(224,72,53,.08)';
+        b.style.border = '1px solid rgba(224,72,53,.3)';
+      });
+      btn.classList.add('az-sl-active');
+      btn.style.background = 'rgba(224,72,53,.25)';
+      btn.style.border = '1px solid var(--rust)';
+    };
+  });
 }
 
 function getRsiColor(rsi) {
