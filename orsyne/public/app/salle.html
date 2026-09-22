@@ -67,7 +67,7 @@
 </main>
 
 <script type="module">
-import { get, post, el, toast, errorMessage, formatTime, connectStream, statusTag }
+import { get, post, el, mount, toast, errorMessage, formatTime, connectStream, statusTag }
   from '/assets/orsyne.js';
 
 const app = document.getElementById('app');
@@ -78,7 +78,7 @@ async function boot() {
   if (!me.ok) return renderLogin();
   state.me = me.data;
   if (me.data.restaurants.length === 0) {
-    return app.replaceChildren(el('div', { class: 'empty', text: 'Aucun établissement accessible.' }));
+    return mount(app, el('div', { class: 'empty', text: 'Aucun établissement accessible.' }));
   }
   state.restaurant = me.data.restaurants[0];
   document.getElementById('who').textContent = me.data.user.display_name ?? me.data.user.full_name;
@@ -91,7 +91,7 @@ async function boot() {
 }
 
 function renderLogin(message) {
-  app.replaceChildren(el('div', { class: 'card', style: 'margin-top:2rem' }, [
+  mount(app, el('div', { class: 'card', style: 'margin-top:2rem' }, [
     el('div', { class: 'card__body' }, [
       el('h1', { text: 'Mon service' }),
       el('p', { class: 'muted small', text: 'Connectez-vous pour voir vos tables.' }),
@@ -148,7 +148,7 @@ async function refresh() {
     get(`/api/restaurants/${state.restaurant.id}/service`),
     get('/api/notifications?unread=true'),
   ]);
-  if (!service.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(service) }));
+  if (!service.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(service) }));
   state.service = service.data;
   state.notifications = notifications.ok ? notifications.data : [];
   render();
@@ -162,7 +162,7 @@ function render() {
   const active = reservations.filter((r) => !['completed', 'cancelled', 'no_show'].includes(r.status));
   const unread = state.notifications.length;
 
-  app.replaceChildren(
+  mount(app, 
     el('div', { class: 'tabs' }, [
       el('button', {
         'aria-current': state.tab === 'tables' ? 'page' : null,
@@ -273,12 +273,10 @@ async function showBrief(reservation) {
   const brief = result.data;
 
   const overlay = el('div', {
-    class: 'drawer', style: 'align-items:flex-end;justify-content:center',
+    class: 'drawer drawer--sheet',
     onclick: (event) => { if (event.currentTarget === event.target) overlay.remove(); },
   }, [
-    el('div', {
-      class: 'card', style: 'width:min(560px,100%);margin:0 0 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0',
-    }, [
+    el('div', { class: 'card' }, [
       el('div', { class: 'card__head' }, [
         el('div', {}, [
           el('h2', { text: brief.title }),

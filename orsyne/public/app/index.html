@@ -23,15 +23,6 @@
     background: var(--warn-soft); margin-bottom: .4rem;
   }
   .alert-item--danger { background: var(--danger-soft); }
-  .drawer {
-    position: fixed; inset: 0; z-index: 60;
-    background: rgba(8,11,18,.45); display: flex; justify-content: flex-end;
-  }
-  .drawer__panel {
-    width: min(460px, 100%); background: var(--surface); overflow-y: auto;
-    box-shadow: var(--shadow-lg); animation: slide-in .18s ease-out;
-  }
-  @keyframes slide-in { from { transform: translateX(16px); opacity: .6; } }
   table.data { width: 100%; border-collapse: collapse; font-size: .9rem; }
   table.data th {
     text-align: left; font-size: .72rem; text-transform: uppercase;
@@ -72,8 +63,8 @@
 </main>
 
 <script type="module">
-import { get, post, patch, del, el, toast, errorMessage, formatTime, formatDate,
-         statusTag, connectStream, todayIso, TABLE_STATUS_LABELS }
+import { get, post, patch, del, el, mount, toast, errorMessage, formatTime, formatDate,
+         statusTag, connectStream, todayIso, prettyPreference, TABLE_STATUS_LABELS }
   from '/assets/orsyne.js';
 
 const app = document.getElementById('app');
@@ -96,7 +87,7 @@ async function boot() {
 function renderLogin(message) {
   nav.hidden = true;
   document.getElementById('session').hidden = true;
-  app.replaceChildren(el('div', { class: 'wrap wrap--narrow', style: 'padding-top:3rem' }, [
+  mount(app, el('div', { class: 'wrap wrap--narrow', style: 'padding-top:3rem' }, [
     el('div', { class: 'card' }, [
       el('div', { class: 'card__body' }, [
         el('h1', { text: 'Connexion' }),
@@ -133,7 +124,7 @@ async function submitLogin(event) {
 }
 
 function renderNoRestaurant() {
-  app.replaceChildren(el('div', { class: 'empty' }, [
+  mount(app, el('div', { class: 'empty' }, [
     el('h2', { text: 'Aucun établissement accessible' }),
     el('p', { text: 'Demandez à un responsable de vous rattacher à un établissement.' }),
   ]));
@@ -145,7 +136,7 @@ function setupChrome() {
   session.hidden = false;
 
   const picker = document.getElementById('restaurant-picker');
-  picker.replaceChildren(...state.me.restaurants.map((r) =>
+  mount(picker, ...state.me.restaurants.map((r) =>
     el('option', { value: r.id, text: r.name })));
   picker.value = state.restaurant.id;
   picker.onchange = () => {
@@ -195,7 +186,7 @@ async function openView(view) {
     if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
     else button.removeAttribute('aria-current');
   }
-  app.replaceChildren(el('div', { class: 'center', style: 'padding:3rem' },
+  mount(app, el('div', { class: 'center', style: 'padding:3rem' },
     [el('div', { class: 'spinner', style: 'margin:auto' })]));
   const views = {
     service: loadService, floor: loadFloor, reservations: loadReservations,
@@ -210,12 +201,12 @@ async function loadService() {
     get(`/api/restaurants/${state.restaurant.id}/service?date=${state.date}`),
     get(`/api/restaurants/${state.restaurant.id}/load`),
   ]);
-  if (!service.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(service) }));
+  if (!service.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(service) }));
   state.service = service.data;
   const { stats, reservations, tables, alerts, restaurant } = service.data;
   const tz = restaurant.timezone;
 
-  app.replaceChildren(
+  mount(app, 
     el('div', { class: 'row row--between row--wrap', style: 'margin-bottom:1rem' }, [
       el('div', {}, [
         el('h1', { text: 'Service en cours' }),
@@ -471,10 +462,10 @@ function openWalkIn() {
 /* --- Autres vues -------------------------------------------------------- */
 async function loadFloor() {
   const floor = await get(`/api/restaurants/${state.restaurant.id}/floor`);
-  if (!floor.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(floor) }));
+  if (!floor.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(floor) }));
   const { zones, tables } = floor.data;
 
-  app.replaceChildren(
+  mount(app, 
     el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
       el('h1', { text: 'Plan de salle' }),
       el('div', { class: 'row' }, [
@@ -603,10 +594,10 @@ async function loadReservations() {
   const to = new Date(`${state.date}T23:59:59Z`).toISOString();
   const result = await get(
     `/api/restaurants/${state.restaurant.id}/reservations?from=${from}&to=${to}`);
-  if (!result.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(result) }));
+  if (!result.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(result) }));
   const tz = state.restaurant.timezone;
 
-  app.replaceChildren(
+  mount(app, 
     el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
       el('h1', { text: 'Réservations' }),
       el('input', { type: 'date', value: state.date, style: 'width:auto',
@@ -646,8 +637,8 @@ async function loadGuests() {
     const result = await get(`/api/guests?q=${encodeURIComponent(query)}`);
     const body = document.getElementById('guest-results');
     if (!body) return;
-    if (!result.ok) return body.replaceChildren(el('div', { class: 'empty', text: errorMessage(result) }));
-    body.replaceChildren(result.data.length === 0
+    if (!result.ok) return mount(body, el('div', { class: 'empty', text: errorMessage(result) }));
+    mount(body, result.data.length === 0
       ? el('div', { class: 'empty', text: 'Aucun client.' })
       : el('table', { class: 'data' }, [
           el('thead', {}, [el('tr', {}, ['Client', 'Contact', 'Visites', 'No-shows', 'Dernière visite']
@@ -668,7 +659,7 @@ async function loadGuests() {
         ]));
   };
 
-  app.replaceChildren(
+  mount(app, 
     el('h1', { text: 'Clients', style: 'margin-bottom:1rem' }),
     el('div', { class: 'card' }, [
       el('div', { class: 'card__head' }, [
@@ -707,7 +698,7 @@ async function openGuest(guestId) {
       el('h4', { text: 'Préférences déclarées' }),
       el('div', { class: 'row row--wrap' }, preferences.map((p) =>
         el('span', { class: `tag ${p.is_critical ? 'tag--danger' : ''}`,
-          text: `${p.is_critical ? '⚠ ' : ''}${p.value}` }))),
+          text: `${p.is_critical ? '⚠ ' : ''}${prettyPreference(p.kind, p.value)}` }))),
     ]) : null,
 
     facts.length > 0 ? el('div', {}, [
@@ -767,10 +758,10 @@ async function loadTeam() {
     get(`/api/restaurants/${state.restaurant.id}/staff`),
     get(`/api/restaurants/${state.restaurant.id}/shifts?from=${new Date().toISOString()}`),
   ]);
-  if (!staff.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(staff) }));
+  if (!staff.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(staff) }));
   const ROLES = { owner: 'Propriétaire', manager: 'Manager', floor_manager: 'Responsable de salle', server: 'Serveur', kitchen: 'Cuisine' };
 
-  app.replaceChildren(
+  mount(app, 
     el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
       el('h1', { text: 'Équipe' }),
       el('div', { class: 'row' }, [
@@ -878,10 +869,10 @@ async function loadAnalytics() {
   const from = new Date(to.getTime() - 30 * 86_400_000);
   const result = await get(`/api/restaurants/${state.restaurant.id}/analytics`
     + `?from=${from.toISOString()}&to=${to.toISOString()}`);
-  if (!result.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(result) }));
+  if (!result.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(result) }));
   const d = result.data;
 
-  app.replaceChildren(
+  mount(app, 
     el('h1', { text: 'Analytics', style: 'margin-bottom:.25rem' }),
     el('p', { class: 'muted small', style: 'margin-bottom:1rem', text: '30 derniers jours' }),
     el('div', { class: 'grid grid--4', style: 'margin-bottom:1rem' }, [

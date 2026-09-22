@@ -48,6 +48,16 @@ export function esc(value) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/**
+ * Remplace le contenu d'un hote en ignorant les noeuds absents.
+ *
+ * `replaceChildren(null)` n'ignore PAS null : il insere le texte « null »
+ * dans la page. Tout rendu conditionnel doit donc passer par ici.
+ */
+export function mount(host, ...nodes) {
+  host.replaceChildren(...nodes.filter((n) => n !== null && n !== undefined && n !== false));
+}
+
 export function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(attrs)) {
@@ -106,6 +116,29 @@ export const TABLE_STATUS_LABELS = {
   cleaning: 'Nettoyage',
   unavailable: 'Indisponible',
 };
+
+/**
+ * Les preferences de table et de zone sont stockees avec le vocabulaire
+ * des attributs de table ('outdoor', 'window') pour que le moteur
+ * d'attribution puisse les rapprocher. Ce vocabulaire est technique : il
+ * ne doit jamais atteindre un ecran, ici comme dans la note de salle.
+ */
+const ATTRIBUTE_LABELS = {
+  outdoor: 'Préfère la terrasse',
+  window: 'Préfère une table en fenêtre',
+  quiet: 'Préfère un coin calme',
+  counter: 'Préfère le comptoir',
+  booth: 'Préfère une banquette',
+  accessible: 'Accès facilité nécessaire',
+  private: 'Préfère un espace privatif',
+};
+
+export function prettyPreference(kind, value) {
+  if (kind === 'table' || kind === 'zone') {
+    return ATTRIBUTE_LABELS[String(value).toLowerCase()] ?? `Préfère ${value}`;
+  }
+  return value;
+}
 
 export function statusTag(status) {
   const tone = {

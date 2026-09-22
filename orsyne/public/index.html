@@ -62,7 +62,7 @@
 </main>
 
 <script type="module">
-import { get, post, el, esc, toast, errorMessage, formatTime, formatDate, formatMoney, todayIso, addDays }
+import { get, post, el, mount, esc, toast, errorMessage, formatTime, formatDate, formatMoney, todayIso, addDays }
   from '/assets/orsyne.js';
 
 // Le slug vient du chemin (/r/mon-restaurant) ou de ?r=mon-restaurant.
@@ -76,7 +76,7 @@ const state = {
   slot: null, step: 0, booking: null,
 };
 
-function render(...nodes) { app.replaceChildren(...nodes); }
+function render(...nodes) { mount(app, ...nodes); }
 
 function steps(active) {
   return el('div', { class: 'steps' }, [0, 1, 2, 3].map((i) =>
@@ -200,12 +200,12 @@ async function loadSlots() {
   // Une reponse arrivee apres un changement de critere est ignoree :
   // l'ecran ne doit jamais afficher les creneaux d'une autre recherche.
   if (ticket !== slotRequest) return;
-  if (!result.ok) { host.replaceChildren(el('p', { class: 'muted', text: errorMessage(result) })); return; }
+  if (!result.ok) { mount(host, el('p', { class: 'muted', text: errorMessage(result) })); return; }
 
   const slots = result.data.slots;
   const open = slots.filter((s) => s.available);
   if (open.length === 0) {
-    host.replaceChildren(el('div', { class: 'empty' }, [
+    mount(host, el('div', { class: 'empty' }, [
       el('p', { text: 'Aucune table disponible ce jour-là pour cette taille de groupe.' }),
       el('p', { class: 'small', text: 'Essayez une autre date ou un autre nombre de personnes.' }),
     ]));
@@ -218,7 +218,7 @@ async function loadSlots() {
     byService.get(slot.servicePeriodName).push(slot);
   }
 
-  host.replaceChildren(...[...byService].map(([name, list]) => el('div', { style: 'margin-bottom:1rem' }, [
+  mount(host, ...[...byService].map(([name, list]) => el('div', { style: 'margin-bottom:1rem' }, [
     el('div', { class: 'tiny muted', style: 'text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem', text: name }),
     el('div', { class: 'slots' }, list.map((slot) => el('button', {
       class: 'slot', type: 'button',

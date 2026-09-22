@@ -299,6 +299,30 @@ textarea { min-height: 76px; resize: vertical; }
 }
 .brief__suggestion strong { font-style: normal; }
 
+/* --- Tiroir / feuille modale ------------------------------------------
+   Partage par le dashboard (panneau lateral) et par l'application de
+   salle (feuille qui monte du bas). Le composant vit ici, pas dans le
+   <style> d'une page : sinon une seule des deux interfaces le recoit. */
+.drawer {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(8, 11, 18, .45);
+  display: flex; justify-content: flex-end;
+}
+.drawer__panel {
+  width: min(460px, 100%); background: var(--surface); overflow-y: auto;
+  box-shadow: var(--shadow-lg); animation: drawer-in .18s ease-out;
+}
+@keyframes drawer-in { from { transform: translateX(16px); opacity: .6; } }
+
+/* Variante mobile : la feuille monte du bas, pouce a portee. */
+.drawer--sheet { align-items: flex-end; justify-content: center; }
+.drawer--sheet > * {
+  width: min(560px, 100%); max-height: 88vh; overflow-y: auto;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  animation: sheet-in .2s ease-out;
+}
+@keyframes sheet-in { from { transform: translateY(24px); opacity: .7; } }
+
 /* --- Divers ---------------------------------------------------------- */
 .muted { color: var(--text-soft); }
 .small { font-size: .85rem; }
