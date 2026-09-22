@@ -7,6 +7,7 @@ import { listSlots } from '../../domain/availability.js';
 import { assignServer, suggestServer, tryAssignServer } from '../../services/assignment.js';
 import { getServiceView } from '../../services/service-view.js';
 import { isServerOnly } from '../rbac.js';
+import { recordAllergies, upsertGuest } from '../../services/guest-profile.js';
 
 function parseStartsAt(value) {
   const date = new Date(value);
@@ -71,6 +72,11 @@ export function reservationRoutes(router = new Router()) {
 
     const result = await ctx.withTenant(async (client) => {
       const guestId = body.guestId ?? (body.guest ? await upsertGuest(client, ctx.tenantId, body.guest) : null);
+      // Saisie par l'equipe : vaut confirmation de vive voix.
+      await recordAllergies(client, {
+        tenantId: ctx.tenantId, guestId, allergies: body.allergies,
+        source: 'staff_entered', createdBy: ctx.user.id,
+      });
       const created = await createReservation(client, {
         restaurantId: ctx.params.restaurantId,
         guestId,
@@ -180,44 +186,4 @@ export function reservationRoutes(router = new Router()) {
   }, { permission: 'staff:schedule' });
 
   return router;
-}
-
-/** Deduplication du client sur le telephone puis l'email. */
-export async function upsertGuest(client, tenantId, guest) {
-  const phone = guest.phone?.trim() || null;
-  const email = guest.email?.trim() || null;
-  if (!phone && !email) return null;
-
-  const { rows: existing } = await client.query(
-    `SELECT id FROM guests
-      WHERE tenant_id = $1 AND anonymized_at IS NULL
-        AND (($2::text IS NOT NULL AND phone_e164 = $2)
-          OR ($3::citext IS NOT NULL AND email = $3))
-      LIMIT 1`,
-    [tenantId, phone, email],
-  );
-
-  if (existing.length > 0) {
-    // On complete le profil sans jamais ecraser une valeur existante par
-    // un vide : une reservation rapide ne doit pas appauvrir le CRM.
-    const { rows } = await client.query(
-      `UPDATE guests SET
-         first_name = COALESCE($2, first_name),
-         last_name  = COALESCE($3, last_name),
-         email      = COALESCE(email, $4),
-         phone_e164 = COALESCE(phone_e164, $5),
-         locale     = COALESCE($6, locale)
-       WHERE id = $1 RETURNING id`,
-      [existing[0].id, guest.firstName ?? null, guest.lastName ?? null, email, phone, guest.locale ?? null],
-    );
-    return rows[0].id;
-  }
-
-  const { rows } = await client.query(
-    `INSERT INTO guests (tenant_id, first_name, last_name, email, phone_e164, locale, source)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [tenantId, guest.firstName ?? null, guest.lastName ?? null, email, phone,
-     guest.locale ?? 'fr-FR', guest.source ?? 'widget'],
-  );
-  return rows[0].id;
 }

@@ -52,11 +52,13 @@ const GUESTS = [
   { first: 'Thomas', last: 'Martin', phone: '+33612345001', locale: 'fr-FR',
     prefs: [['zone', 'outdoor', false], ['dish', 'Entrecôte', false]], visits: 9 },
   { first: 'Alice', last: 'Dubois', phone: '+33612345002', locale: 'fr-FR',
-    prefs: [['allergy', 'Fruits à coque', true]], visits: 4 },
+    // Confirmee de vive voix par l'equipe lors d'une visite precedente.
+    prefs: [['allergy', 'Fruits à coque', true, 'staff_entered']], visits: 4 },
   { first: 'Sofia', last: 'Rossi', phone: '+39331234503', locale: 'it-IT',
     prefs: [['table', 'window', false]], visits: 2 },
   { first: 'James', last: 'Carter', phone: '+447700900004', locale: 'en-GB',
-    prefs: [['diet', 'Végétarien', false]], visits: 1 },
+    // Declaree en ligne, jamais reconfirmee : la salle doit le voir.
+    prefs: [['diet', 'Végétarien', false], ['allergy', 'Crustacés', true, 'guest_declared']], visits: 1 },
 ];
 
 export async function seed({ connectionString = config.adminDatabaseUrl, log = console.log } = {}) {
@@ -146,11 +148,11 @@ export async function seed({ connectionString = config.adminDatabaseUrl, log = c
         `INSERT INTO guests (tenant_id, first_name, last_name, phone_e164, locale)
          VALUES ($1,$2,$3,$4,$5) RETURNING id`,
         [tenant.id, guest.first, guest.last, guest.phone, guest.locale]);
-      for (const [kind, value, critical] of guest.prefs) {
+      for (const [kind, value, critical, source] of guest.prefs) {
         await db.query(
           `INSERT INTO guest_preferences (tenant_id, guest_id, kind, value, source, is_critical)
-           VALUES ($1,$2,$3,$4,'guest_declared',$5)`,
-          [tenant.id, row.id, kind, value, critical]);
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [tenant.id, row.id, kind, value, source ?? 'guest_declared', critical ?? false]);
       }
       await db.query(
         `INSERT INTO guest_restaurant_stats

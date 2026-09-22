@@ -2,7 +2,8 @@ import { Router, readJson, sendJson, badRequest, notFound } from '../http.js';
 import { getPool, withTenant } from '../../db/pool.js';
 import { listSlots } from '../../domain/availability.js';
 import { createReservation, cancelReservation, confirmPayment } from '../../domain/reservation-engine.js';
-import { upsertGuest } from './reservations.js';
+import { recordAllergies, upsertGuest } from '../../services/guest-profile.js';
+import { EU_ALLERGENS } from '../../services/guest-profile.js';
 import { tryAssignServer } from '../../services/assignment.js';
 
 /**
@@ -43,6 +44,9 @@ export function publicRoutes(router = new Router()) {
       return {
         restaurant, zones, services,
         maxPartySize: Math.max(Number(capacity.max_party), Number(combo?.max_party ?? 0)),
+        // Suggestions d'allergenes, servies par l'API pour rester
+        // alignees entre le widget, l'application et l'IA telephonique.
+        allergenSuggestions: EU_ALLERGENS,
       };
     });
     sendJson(ctx.res, 200, data);
@@ -74,6 +78,14 @@ export function publicRoutes(router = new Router()) {
 
     const result = await withTenant({ tenantId }, async (client) => {
       const guestId = await upsertGuest(client, tenantId, { ...body.guest, source: 'widget' });
+
+      // L'allergie declaree par le client devient une donnee structuree :
+      // elle declenche l'alerte en salle, remonte toujours dans la note
+      // du serveur, et sera connue a sa prochaine visite. Une note libre
+      // ne ferait aucune des trois.
+      await recordAllergies(client, {
+        tenantId, guestId, allergies: body.allergies, source: 'guest_declared',
+      });
       const created = await createReservation(client, {
         restaurantId,
         guestId,

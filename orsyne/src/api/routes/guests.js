@@ -1,7 +1,7 @@
 import { Router, readJson, sendJson, badRequest, notFound, forbidden } from '../http.js';
 import { buildGuestBrief } from '../../services/guest-brief.js';
 import { isServerOnly } from '../rbac.js';
-import { upsertGuest } from './reservations.js';
+import { recordAllergies, upsertGuest } from '../../services/guest-profile.js';
 
 /** CRM. Le serveur n'a acces qu'a la note de briefing, jamais au profil. */
 export function guestRoutes(router = new Router()) {
@@ -77,7 +77,14 @@ export function guestRoutes(router = new Router()) {
   router.post('/api/guests', async (ctx) => {
     const body = await readJson(ctx.req);
     if (!body.phone && !body.email) throw badRequest('Un telephone ou un email est requis.');
-    const guestId = await ctx.withTenant((client) => upsertGuest(client, ctx.tenantId, body));
+    const guestId = await ctx.withTenant(async (client) => {
+      const id = await upsertGuest(client, ctx.tenantId, body);
+      await recordAllergies(client, {
+        tenantId: ctx.tenantId, guestId: id, allergies: body.allergies,
+        source: 'staff_entered', createdBy: ctx.user.id,
+      });
+      return id;
+    });
     sendJson(ctx.res, 201, { id: guestId });
   }, { permission: 'guests:write' });
 
@@ -109,7 +116,13 @@ export function guestRoutes(router = new Router()) {
       const { rows } = await client.query(
         `INSERT INTO guest_preferences (tenant_id, guest_id, kind, value, source, is_critical, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7)
-         ON CONFLICT (guest_id, kind, value) DO UPDATE SET is_critical = EXCLUDED.is_critical
+         ON CONFLICT (guest_id, kind, value) DO UPDATE SET
+           is_critical = EXCLUDED.is_critical,
+           -- Une saisie par l'equipe vaut confirmation de vive voix et
+           -- eteint le rappel « a reconfirmer ». On ne retrograde jamais
+           -- dans l'autre sens.
+           source = CASE WHEN EXCLUDED.source = 'staff_entered'
+                         THEN EXCLUDED.source ELSE guest_preferences.source END
          RETURNING *`,
         [ctx.tenantId, ctx.params.guestId, body.kind, body.value,
          body.source ?? 'staff_entered', body.isCritical ?? body.kind === 'allergy', ctx.user.id],

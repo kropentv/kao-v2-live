@@ -43,6 +43,13 @@
   .tabs button[aria-current='page'] {
     background: var(--accent); border-color: var(--accent); color: #fff;
   }
+  /* L'allergie ne se lit pas : elle saute aux yeux. */
+  .allergy-banner {
+    margin-top: .5rem; padding: .55rem .7rem;
+    background: var(--danger-soft); color: var(--danger);
+    border-radius: var(--radius-sm); font-weight: 700; font-size: .92rem;
+    border-left: 4px solid var(--danger);
+  }
   .badge {
     display: inline-block; min-width: 1.25rem; padding: 0 .35rem;
     background: var(--danger); color: #fff; border-radius: 999px;
@@ -213,8 +220,16 @@ function renderTables(reservations, tz, now) {
 
         r.occasion ? el('div', { class: 'small muted', text: `🎉 ${r.occasion}` }) : null,
         r.guest_notes ? el('div', { class: 'small', style: 'margin-top:.3rem', text: `“${r.guest_notes}”` }) : null,
-        r.has_critical_preference
-          ? el('div', { class: 'tag tag--danger', style: 'margin-top:.4rem', text: '⚠️ Allergie déclarée — voir la fiche' })
+        r.allergies?.length
+          ? el('div', { class: 'allergy-banner' }, [
+              el('div', { text: `⚠️ ALLERGIE — ${r.allergies.join(' · ')}` }),
+              r.allergy_needs_confirmation
+                ? el('div', { class: 'tiny', style: 'font-weight:500;margin-top:.15rem',
+                    text: 'Déclarée en ligne — à reconfirmer avec le client' })
+                : null,
+            ])
+          : r.has_critical_preference
+          ? el('div', { class: 'tag tag--danger', style: 'margin-top:.4rem', text: '⚠️ Information critique — voir la fiche' })
           : null,
 
         el('div', { class: 'actions' }, [
@@ -289,7 +304,13 @@ async function showBrief(reservation) {
         el('div', { class: 'brief' }, brief.lines.map((line) =>
           el('div', { class: `brief__line ${line.kind === 'critical' ? 'brief__line--critical' : ''}` }, [
             el('span', { text: line.icon }),
-            el('span', { text: line.text }),
+            el('span', {}, [
+              line.text,
+              line.needsConfirmation
+                ? el('div', { class: 'tiny', style: 'font-weight:500;opacity:.8',
+                    text: 'déclarée en ligne — à reconfirmer' })
+                : null,
+            ]),
           ]))),
         brief.suggestion ? el('div', { class: 'brief__suggestion' }, [
           el('strong', { text: '💡 Suggestion — ' }),

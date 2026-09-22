@@ -36,6 +36,27 @@
     background: var(--accent-soft); color: var(--accent-text);
     border-radius: var(--radius-sm); display: inline-block;
   }
+  .allergy-block {
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    padding: .8rem; background: var(--surface-2);
+  }
+  .allergens { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .allergen {
+    padding: .35rem .65rem; font: inherit; font-size: .85rem; font-weight: 550;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: 999px;
+    cursor: pointer; transition: all .12s;
+  }
+  .allergen:hover { border-color: var(--danger); }
+  .allergen[aria-pressed='true'] {
+    background: var(--danger-soft); border-color: var(--danger);
+    color: var(--danger); font-weight: 650;
+  }
+  .allergen[aria-pressed='true']::before { content: '⚠ '; }
+  .tag__remove {
+    background: none; border: none; color: inherit; cursor: pointer;
+    font: inherit; font-size: 1.1em; line-height: 1; padding: 0 0 0 .3rem;
+  }
   .deposit-notice {
     border-left: 3px solid var(--amber); background: var(--amber-soft);
     padding: .75rem .9rem; border-radius: var(--radius-sm); margin-bottom: 1rem;
@@ -74,6 +95,8 @@ const app = document.getElementById('app');
 const state = {
   venue: null, date: null, partySize: 2, zoneId: null,
   slot: null, step: 0, booking: null,
+  // Allergies declarees : donnee structuree, pas du texte libre.
+  allergies: new Set(),
 };
 
 function render(...nodes) { mount(app, ...nodes); }
@@ -283,9 +306,11 @@ function renderDetails() {
                 .map((o) => el('option', { value: o, text: o })),
             ]),
           ]),
+          allergyField(),
           el('div', { class: 'field' }, [
-            el('label', { for: 'notes', text: 'Allergies, régime, demande particulière' }),
-            el('textarea', { id: 'notes', name: 'notes', placeholder: 'Une allergie ? Précisez-la ici, elle sera transmise en salle.' }),
+            el('label', { for: 'notes', text: 'Autre demande (facultatif)' }),
+            el('textarea', { id: 'notes', name: 'notes',
+              placeholder: 'Table calme, poussette, fauteuil roulant, anniversaire à fêter…' }),
           ]),
           el('div', { class: 'field row', style: 'gap:.5rem;align-items:flex-start' }, [
             el('input', { type: 'checkbox', id: 'marketing', name: 'marketing', style: 'width:auto;margin-top:.25rem' }),
@@ -302,6 +327,70 @@ function renderDetails() {
   );
 }
 
+/**
+ * Saisie des allergies.
+ *
+ * Champ separe et structure, volontairement distinct des demandes de
+ * confort. Une allergie noyee dans un champ « remarques » n'est pas
+ * transmise en salle comme une alerte : elle est lue comme une remarque.
+ */
+function allergyField() {
+  const chips = el('div', { class: 'allergens' }, state.venue.allergenSuggestions.map((name) =>
+    el('button', {
+      type: 'button',
+      class: 'allergen',
+      'aria-pressed': String(state.allergies.has(name)),
+      onclick: (event) => {
+        if (state.allergies.has(name)) state.allergies.delete(name);
+        else state.allergies.add(name);
+        event.target.setAttribute('aria-pressed', String(state.allergies.has(name)));
+        renderCustomAllergies();
+      },
+    }, [name])));
+
+  return el('div', { class: 'field allergy-block' }, [
+    el('label', { text: 'Allergies ou intolérances' }),
+    el('p', { class: 'tiny muted', style: 'margin:0 0 .5rem',
+      text: "Sélectionnez ce qui vous concerne. L'information est transmise en salle et en cuisine, et conservée pour vos prochaines visites." }),
+    chips,
+    el('div', { class: 'row', style: 'gap:.4rem;margin-top:.5rem' }, [
+      el('input', {
+        id: 'custom-allergen', type: 'text', placeholder: 'Autre allergie — précisez',
+        onkeydown: (event) => {
+          if (event.key !== 'Enter') return;
+          event.preventDefault();
+          addCustomAllergy();
+        },
+      }),
+      el('button', { type: 'button', class: 'btn btn--sm', onclick: addCustomAllergy }, ['Ajouter']),
+    ]),
+    el('div', { id: 'custom-allergies', class: 'row row--wrap', style: 'margin-top:.5rem' }),
+  ]);
+}
+
+function addCustomAllergy() {
+  const input = document.getElementById('custom-allergen');
+  const value = input.value.trim();
+  if (!value) return;
+  state.allergies.add(value);
+  input.value = '';
+  renderCustomAllergies();
+}
+
+/** Affiche les allergies saisies librement, chacune retirable. */
+function renderCustomAllergies() {
+  const host = document.getElementById('custom-allergies');
+  if (!host) return;
+  const custom = [...state.allergies].filter((a) => !state.venue.allergenSuggestions.includes(a));
+  mount(host, ...custom.map((value) => el('span', { class: 'tag tag--danger' }, [
+    `⚠ ${value}`,
+    el('button', {
+      type: 'button', class: 'tag__remove', 'aria-label': `Retirer ${value}`,
+      onclick: () => { state.allergies.delete(value); renderCustomAllergies(); },
+    }, ['×']),
+  ])));
+}
+
 async function submitBooking(event) {
   event.preventDefault();
   const form = new FormData(event.target);
@@ -315,6 +404,7 @@ async function submitBooking(event) {
     zoneId: state.zoneId,
     occasion: form.get('occasion') || null,
     notes: form.get('notes') || null,
+    allergies: [...state.allergies],
     guest: {
       firstName: form.get('firstName'),
       lastName: form.get('lastName'),
@@ -369,6 +459,16 @@ function renderConfirmation() {
             el('dt', { text: 'Couverts' }), el('dd', { text: String(booking.partySize) }),
           ]),
         ]),
+
+        state.allergies.size > 0 ? el('div', {
+          class: 'deposit-notice', style: 'text-align:left;border-left-color:var(--danger);background:var(--danger-soft)',
+        }, [
+          el('strong', { text: '⚠️ Allergies transmises au restaurant' }),
+          el('p', { class: 'small', style: 'margin:.35rem 0 0',
+            text: [...state.allergies].join(' · ') }),
+          el('p', { class: 'tiny', style: 'margin:.35rem 0 0',
+            text: "Rappelez-les à votre serveur à l'arrivée : c'est la confirmation de vive voix qui fait foi en cuisine." }),
+        ]) : null,
 
         ...(needsPayment ? [
           el('div', { class: 'deposit-notice', style: 'text-align:left' }, [

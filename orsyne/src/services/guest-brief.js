@@ -26,7 +26,7 @@ export async function buildGuestBrief(client, { guestId, restaurantId, maxLines 
     [guestId, restaurantId],
   );
   const { rows: preferences } = await client.query(
-    `SELECT kind, value, is_critical FROM guest_preferences
+    `SELECT kind, value, is_critical, source FROM guest_preferences
       WHERE guest_id = $1 ORDER BY is_critical DESC, kind`,
     [guestId],
   );
@@ -53,6 +53,11 @@ export async function buildGuestBrief(client, { guestId, restaurantId, maxLines 
       icon: preference.kind === 'allergy' ? '⚠️' : '🚫',
       text: preference.kind === 'allergy' ? `Allergie : ${preference.value}` : preference.value,
       kind: 'critical',
+      // Une allergie cochee dans un formulaire n'a pas ete confirmee de
+      // vive voix. Le serveur doit le savoir avant de conseiller un plat :
+      // on l'affiche, on ne le devine pas.
+      source: preference.source,
+      needsConfirmation: preference.source === 'guest_declared',
     });
   }
 
@@ -117,6 +122,8 @@ export async function buildGuestBrief(client, { guestId, restaurantId, maxLines 
     // rendre differemment, jamais la melanger aux faits.
     suggestion: suggestion ?? null,
     hasCritical: critical.length > 0,
+    // Au moins une allergie vient d'un formulaire et reste a confirmer.
+    needsAllergyConfirmation: critical.some((line) => line.needsConfirmation),
   };
 }
 

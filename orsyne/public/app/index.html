@@ -341,7 +341,13 @@ function renderReservationList(reservations, tz) {
     el('div', { class: 'list__main' }, [
       el('div', { class: 'list__title' }, [
         r.guestName ?? 'Sans nom',
-        r.has_critical_preference ? el('span', { class: 'tag tag--danger', style: 'margin-left:.4rem', text: '⚠ allergie' }) : null,
+        r.allergies?.length
+          ? el('span', { class: 'tag tag--danger', style: 'margin-left:.4rem',
+              title: r.allergy_needs_confirmation ? 'Déclarée en ligne — à reconfirmer' : 'Confirmée par l\'équipe',
+              text: `⚠ ${r.allergies.join(', ')}` })
+          : r.has_critical_preference
+          ? el('span', { class: 'tag tag--danger', style: 'margin-left:.4rem', text: '⚠ info critique' })
+          : null,
         r.vip ? el('span', { class: 'tag tag--amber', style: 'margin-left:.4rem', text: '⭐ VIP' }) : null,
       ]),
       el('div', { class: 'list__meta',

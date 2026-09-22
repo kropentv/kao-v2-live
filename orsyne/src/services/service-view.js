@@ -57,7 +57,14 @@ export async function getServiceView(client, { restaurantId, now = new Date(), i
             sa.user_id AS server_user_id,
             COALESCE(su.display_name, su.full_name) AS server_name,
             EXISTS (SELECT 1 FROM guest_preferences gp
-                     WHERE gp.guest_id = g.id AND gp.is_critical) AS has_critical_preference
+                     WHERE gp.guest_id = g.id AND gp.is_critical) AS has_critical_preference,
+            COALESCE((SELECT array_agg(gp.value ORDER BY gp.value)
+                        FROM guest_preferences gp
+                       WHERE gp.guest_id = g.id AND gp.is_critical
+                         AND gp.kind = 'allergy'), '{}') AS allergies,
+            EXISTS (SELECT 1 FROM guest_preferences gp
+                     WHERE gp.guest_id = g.id AND gp.is_critical
+                       AND gp.source = 'guest_declared') AS allergy_needs_confirmation
        FROM reservations r
        LEFT JOIN guests g ON g.id = r.guest_id
        LEFT JOIN guest_restaurant_stats gs ON gs.guest_id = g.id AND gs.restaurant_id = r.restaurant_id
