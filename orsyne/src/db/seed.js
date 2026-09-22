@@ -7,7 +7,19 @@ import pg from 'pg';
 import { config } from '../config.js';
 import { withTenant } from './pool.js';
 import { createReservation } from '../domain/reservation-engine.js';
-import { zonedTimeToUtc } from '../lib/time.js';
+import { tryAssignServer } from '../services/assignment.js';
+import { hashPassword } from '../services/auth.js';
+import { utcToZonedParts, zonedTimeToUtc } from '../lib/time.js';
+
+export const DEMO_PASSWORD = 'demo-orsyne-2026';
+
+const TEAM = [
+  { email: 'patron@orsyne.demo',  name: 'Camille Durand', role: 'owner' },
+  { email: 'manager@orsyne.demo', name: 'Inès Bertrand',  role: 'manager' },
+  { email: 'lucas@orsyne.demo',   name: 'Lucas Perrin',   role: 'server', zones: ['Salle'] },
+  { email: 'sarah@orsyne.demo',   name: 'Sarah Nguyen',   role: 'server', zones: ['Terrasse', 'Bar'] },
+  { email: 'hugo@orsyne.demo',    name: 'Hugo Mercier',   role: 'server', zones: ['Salle'] },
+];
 
 const TABLES = [
   // Salle principale
@@ -149,7 +161,7 @@ export async function seed({ connectionString = config.adminDatabaseUrl, log = c
       if (guest.first === 'Thomas') {
         const { rows: [fact] } = await db.query(
           `INSERT INTO guest_facts (tenant_id, guest_id, restaurant_id, subject, occurrences)
-           VALUES ($1,$2,$3,'dish:entrecote',5) RETURNING id`,
+           VALUES ($1,$2,$3,'dish:Entrecôte',5) RETURNING id`,
           [tenant.id, row.id, restaurant.id]);
         await db.query(
           `INSERT INTO guest_insights
@@ -160,56 +172,155 @@ export async function seed({ connectionString = config.adminDatabaseUrl, log = c
       }
     }
 
+    // --- Equipe, avec des shifts couvrant le service du soir ---------
+    const passwordHash = await hashPassword(DEMO_PASSWORD);
+    const userIds = {};
+    for (const member of TEAM) {
+      const { rows: [user] } = await db.query(
+        `INSERT INTO users (tenant_id, email, password_hash, full_name, status)
+         VALUES ($1,$2,$3,$4,'active') RETURNING id`,
+        [tenant.id, member.email, passwordHash, member.name]);
+      userIds[member.email] = user.id;
+
+      await db.query(
+        `INSERT INTO memberships (tenant_id, user_id, restaurant_id, role)
+         VALUES ($1,$2,$3,$4)`,
+        // Le proprietaire est rattache au tenant, pas a un etablissement :
+        // il couvrira automatiquement les futurs restaurants du groupe.
+        [tenant.id, user.id, member.role === 'owner' ? null : restaurant.id, member.role]);
+
+      if (member.role === 'server') {
+        await db.query(
+          `INSERT INTO staff_profiles (tenant_id, user_id, restaurant_id, max_tables, max_covers)
+           VALUES ($1,$2,$3,6,24)`,
+          [tenant.id, user.id, restaurant.id]);
+
+        const { rows: [shift] } = await db.query(
+          `INSERT INTO shifts (tenant_id, restaurant_id, user_id, starts_at, ends_at, role, status)
+           VALUES ($1,$2,$3, now() - interval '2 hours', now() + interval '10 hours',
+                   'server', 'clocked_in')
+           RETURNING id`,
+          [tenant.id, restaurant.id, user.id]);
+
+        for (const zoneName of member.zones ?? []) {
+          await db.query(
+            `INSERT INTO shift_zones (tenant_id, shift_id, zone_id) VALUES ($1,$2,$3)`,
+            [tenant.id, shift.id, zoneIds[zoneName]]);
+        }
+      }
+    }
+
     log(`Tenant demo cree : ${tenant.id}`);
     log(`Restaurant : ${restaurant.name} (${restaurant.id})`);
-    log(`${TABLES.length} tables, ${ZONES.length} zones, ${GUESTS.length} clients.`);
-    return { tenantId: tenant.id, restaurantId: restaurant.id };
+    log(`${TABLES.length} tables, ${ZONES.length} zones, ${GUESTS.length} clients, ${TEAM.length} membres d'equipe.`);
+    return { tenantId: tenant.id, restaurantId: restaurant.id, slug: restaurant.slug };
   } finally {
     await db.end();
   }
 }
 
-/** Quelques reservations sur le prochain vendredi soir, via le vrai moteur. */
+/**
+ * Reservations placees sur le PROCHAIN SERVICE REEL du restaurant.
+ *
+ * On ne force jamais un creneau : la demo passe par le vrai moteur, donc
+ * elle doit viser une plage que le restaurant ouvre effectivement. Sinon
+ * le jeu de donnees ne prouve rien — il montre juste des refus.
+ */
 export async function seedReservations({ tenantId, restaurantId, log = console.log }) {
-  const now = new Date();
-  const daysUntilFriday = (5 - now.getUTCDay() + 7) % 7 || 7;
-  const target = new Date(now);
-  target.setUTCDate(target.getUTCDate() + daysUntilFriday);
+  const context = await withTenant({ tenantId }, async (client) => ({
+    guests: (await client.query('SELECT id FROM guests ORDER BY created_at LIMIT 4')).rows,
+    restaurant: (await client.query(
+      'SELECT timezone FROM restaurants WHERE id = $1', [restaurantId])).rows[0],
+    periods: (await client.query(
+      `SELECT name, days_of_week, starts_at, ends_at, last_seating_offset_minutes
+         FROM service_periods WHERE restaurant_id = $1 AND is_active
+         ORDER BY starts_at`, [restaurantId])).rows,
+  }));
 
-  const wall = {
-    year: target.getUTCFullYear(), month: target.getUTCMonth() + 1, day: target.getUTCDate(),
-  };
+  const target = nextServiceOccurrence(context);
+  if (!target) {
+    log('Aucun service ouvert dans les 14 prochains jours : aucune reservation creee.');
+    return { created: 0 };
+  }
 
-  const bookings = [
-    { hour: 19, minute: 30, party: 2 },
-    { hour: 20, minute: 0, party: 4 },
-    { hour: 20, minute: 0, party: 2 },
-    { hour: 20, minute: 30, party: 6 },
-    { hour: 21, minute: 0, party: 4 },
-  ];
-
+  const parties = [2, 4, 2, 6, 4, 2];
+  const sources = ['widget', 'phone_ai', 'widget', 'staff', 'widget', 'phone_ai'];
   let created = 0;
-  for (const booking of bookings) {
+
+  for (const [index, party] of parties.entries()) {
+    // Etale les arrivees par quart d'heure, comme un vrai service.
+    const startsAt = new Date(target.opensAt.getTime() + (index * 15 + 30) * 60_000);
+    if (startsAt > target.lastSeatingAt) break;
     try {
-      await withTenant({ tenantId }, (client) => createReservation(client, {
-        restaurantId,
-        partySize: booking.party,
-        startsAt: zonedTimeToUtc({ ...wall, hour: booking.hour, minute: booking.minute }, 'Europe/Paris'),
-        source: 'staff',
-        skipDeposit: true,
-      }));
+      await withTenant({ tenantId }, async (client) => {
+        const result = await createReservation(client, {
+          restaurantId,
+          partySize: party,
+          startsAt,
+          guestId: context.guests[index % context.guests.length]?.id ?? null,
+          source: sources[index],
+          skipDeposit: true,
+        });
+        await tryAssignServer(client, { restaurantId, reservationId: result.reservation.id });
+      });
       created += 1;
     } catch (error) {
-      log(`  ${booking.hour}h${String(booking.minute).padStart(2, '0')} — ${error.message}`);
+      log(`  ${startsAt.toISOString()} — ${error.message}`);
     }
   }
-  log(`${created} reservation(s) creee(s) pour le prochain vendredi soir.`);
+
+  const label = target.opensAt.toLocaleString('fr-FR', {
+    timeZone: context.restaurant.timezone,
+    weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+  });
+  log(`${created} reservation(s) creee(s) — service « ${target.name} » du ${label}.`);
+  return { created, date: target.isoDate };
+}
+
+/** Premiere plage de service ouverte dans les 14 prochains jours. */
+function nextServiceOccurrence({ restaurant, periods }) {
+  const timeZone = restaurant.timezone;
+  const now = new Date();
+
+  for (let offset = 0; offset < 14; offset += 1) {
+    const day = new Date(now.getTime() + offset * 86_400_000);
+    const parts = utcToZonedParts(day, timeZone);
+    const isoDate = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+
+    for (const period of periods) {
+      if (!period.days_of_week.includes(parts.dayOfWeek)) continue;
+      const [openHour, openMinute] = period.starts_at.split(':').map(Number);
+      const [closeHour, closeMinute] = period.ends_at.split(':').map(Number);
+
+      const opensAt = zonedTimeToUtc(
+        { year: parts.year, month: parts.month, day: parts.day, hour: openHour, minute: openMinute },
+        timeZone);
+      const closesAt = zonedTimeToUtc(
+        { year: parts.year, month: parts.month, day: parts.day, hour: closeHour, minute: closeMinute },
+        timeZone);
+      const lastSeatingAt = new Date(
+        closesAt.getTime() - period.last_seating_offset_minutes * 60_000);
+
+      // Un service deja commence n'est pas rejoue : on vise la suite.
+      if (lastSeatingAt <= now) continue;
+      return { name: period.name, opensAt: opensAt > now ? opensAt : now, lastSeatingAt, isoDate };
+    }
+  }
+  return null;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const result = await seed();
   if (typeof result === 'object') {
-    await seedReservations(result);
+    const seeded = await seedReservations(result);
+    console.log('');
+    if (seeded?.date) console.log(`  Service de demonstration : ${seeded.date}`);
+    console.log('  Widget client   http://localhost:3000/r/' + result.slug);
+    console.log('  Dashboard       http://localhost:3000/app/');
+    console.log('  App de salle    http://localhost:3000/app/salle.html');
+    console.log('');
+    console.log('  Comptes de demonstration (mot de passe : ' + DEMO_PASSWORD + ')');
+    for (const member of TEAM) console.log(`    ${member.role.padEnd(8)} ${member.email}`);
     const { closePool } = await import('./pool.js');
     await closePool();
   }

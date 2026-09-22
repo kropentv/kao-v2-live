@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ORSYNE — Service</title>
+<link rel="stylesheet" href="/assets/orsyne.css">
+<style>
+  .nav { display: flex; gap: .3rem; }
+  .nav button {
+    padding: .45rem .8rem; font: inherit; font-size: .9rem; font-weight: 600;
+    background: transparent; color: var(--text-soft);
+    border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .nav button[aria-current='page'] { background: var(--accent-soft); color: var(--accent-text); }
+  .nav button:hover { color: var(--text); }
+  main { padding: 1.25rem 0 3rem; }
+  .server-row { padding: .6rem 0; border-bottom: 1px solid var(--border); }
+  .server-row:last-child { border-bottom: none; }
+  .alert-item {
+    display: flex; gap: .6rem; align-items: center;
+    padding: .55rem .7rem; border-radius: var(--radius-sm);
+    background: var(--warn-soft); margin-bottom: .4rem;
+  }
+  .alert-item--danger { background: var(--danger-soft); }
+  .drawer {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(8,11,18,.45); display: flex; justify-content: flex-end;
+  }
+  .drawer__panel {
+    width: min(460px, 100%); background: var(--surface); overflow-y: auto;
+    box-shadow: var(--shadow-lg); animation: slide-in .18s ease-out;
+  }
+  @keyframes slide-in { from { transform: translateX(16px); opacity: .6; } }
+  table.data { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  table.data th {
+    text-align: left; font-size: .72rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--text-soft); padding: .45rem .5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  table.data td { padding: .55rem .5rem; border-bottom: 1px solid var(--border); }
+  table.data tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <div class="brand">
+      <span class="brand__name">Orsyne</span>
+      <span class="brand__tagline">Tout s'accorde.</span>
+    </div>
+    <nav class="nav" id="nav" hidden>
+      <button data-view="service" aria-current="page">Service</button>
+      <button data-view="floor">Plan de salle</button>
+      <button data-view="reservations">Réservations</button>
+      <button data-view="guests">Clients</button>
+      <button data-view="team">Équipe</button>
+      <button data-view="analytics">Analytics</button>
+    </nav>
+    <div class="topbar__spacer"></div>
+    <div class="row small" id="session" hidden>
+      <span class="live-dot" id="live" title="Temps réel"></span>
+      <select id="restaurant-picker" style="width:auto"></select>
+      <button class="btn btn--sm" id="logout">Quitter</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap" id="app">
+  <div class="center" style="padding:3rem"><div class="spinner" style="margin:auto"></div></div>
+</main>
+
+<script type="module">
+import { get, post, patch, del, el, toast, errorMessage, formatTime, formatDate,
+         statusTag, connectStream, todayIso, TABLE_STATUS_LABELS }
+  from '/assets/orsyne.js';
+
+const app = document.getElementById('app');
+const nav = document.getElementById('nav');
+const state = { me: null, restaurant: null, view: 'service', service: null, stream: null, date: null };
+
+/* --- Session ---------------------------------------------------------- */
+async function boot() {
+  const me = await get('/api/me');
+  if (!me.ok) return renderLogin();
+  state.me = me.data;
+  if (me.data.restaurants.length === 0) return renderNoRestaurant();
+  state.restaurant = me.data.restaurants[0];
+  state.date = todayIso(state.restaurant.timezone);
+  setupChrome();
+  await openView('service');
+  connect();
+}
+
+function renderLogin(message) {
+  nav.hidden = true;
+  document.getElementById('session').hidden = true;
+  app.replaceChildren(el('div', { class: 'wrap wrap--narrow', style: 'padding-top:3rem' }, [
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__body' }, [
+        el('h1', { text: 'Connexion' }),
+        el('p', { class: 'muted small', text: 'Accédez au service de votre établissement.' }),
+        message ? el('p', { class: 'tag tag--danger', text: message }) : null,
+        el('form', { onsubmit: submitLogin }, [
+          el('div', { class: 'field' }, [
+            el('label', { for: 'email', text: 'Email' }),
+            el('input', { id: 'email', name: 'email', type: 'email', required: true, autocomplete: 'username' }),
+          ]),
+          el('div', { class: 'field' }, [
+            el('label', { for: 'password', text: 'Mot de passe' }),
+            el('input', { id: 'password', name: 'password', type: 'password', required: true, autocomplete: 'current-password' }),
+          ]),
+          el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Se connecter']),
+        ]),
+        el('p', { class: 'tiny muted center', style: 'margin-top:1rem' }, [
+          'Serveur ou responsable de salle ? ',
+          el('a', { href: '/app/salle.html', text: 'Application de salle' }),
+        ]),
+      ]),
+    ]),
+  ]));
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const result = await post('/api/auth/login', {
+    email: form.get('email'), password: form.get('password'),
+  });
+  if (!result.ok) return renderLogin(errorMessage(result, 'Identifiants incorrects.'));
+  boot();
+}
+
+function renderNoRestaurant() {
+  app.replaceChildren(el('div', { class: 'empty' }, [
+    el('h2', { text: 'Aucun établissement accessible' }),
+    el('p', { text: 'Demandez à un responsable de vous rattacher à un établissement.' }),
+  ]));
+}
+
+function setupChrome() {
+  nav.hidden = false;
+  const session = document.getElementById('session');
+  session.hidden = false;
+
+  const picker = document.getElementById('restaurant-picker');
+  picker.replaceChildren(...state.me.restaurants.map((r) =>
+    el('option', { value: r.id, text: r.name })));
+  picker.value = state.restaurant.id;
+  picker.onchange = () => {
+    state.restaurant = state.me.restaurants.find((r) => r.id === picker.value);
+    state.date = todayIso(state.restaurant.timezone);
+    connect();
+    openView(state.view);
+  };
+  // Un seul etablissement : le selecteur n'apporte rien.
+  picker.hidden = state.me.restaurants.length < 2;
+
+  document.getElementById('logout').onclick = async () => {
+    await post('/api/auth/logout');
+    state.stream?.close();
+    location.reload();
+  };
+
+  for (const button of nav.querySelectorAll('button')) {
+    button.onclick = () => openView(button.dataset.view);
+  }
+}
+
+function connect() {
+  state.stream?.close();
+  const dot = document.getElementById('live');
+  const refreshIfService = () => { if (state.view === 'service') loadService(); };
+
+  state.stream = connectStream(state.restaurant.id, {
+    onStatus: (up) => dot.classList.toggle('live-dot--on', up),
+    on: {
+      'reservation.confirmed': (e) => { toast(`Nouvelle réservation · ${e.partySize} pers.`); refreshIfService(); },
+      'reservation.cancelled': () => { toast('Réservation annulée'); refreshIfService(); },
+      'reservation.seated': refreshIfService,
+      'reservation.completed': refreshIfService,
+      'reservation.no_show': () => { toast('No-show enregistré', 'danger'); refreshIfService(); },
+      'reservation.moved': refreshIfService,
+      'reservation.server_assigned': refreshIfService,
+      'table.status_changed': refreshIfService,
+      'manager.broadcast': (e) => toast(`${e.from} : ${e.message}`),
+    },
+  });
+}
+
+async function openView(view) {
+  state.view = view;
+  for (const button of nav.querySelectorAll('button')) {
+    if (button.dataset.view === view) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  }
+  app.replaceChildren(el('div', { class: 'center', style: 'padding:3rem' },
+    [el('div', { class: 'spinner', style: 'margin:auto' })]));
+  const views = {
+    service: loadService, floor: loadFloor, reservations: loadReservations,
+    guests: loadGuests, team: loadTeam, analytics: loadAnalytics,
+  };
+  await views[view]();
+}
+
+/* --- Vue service ------------------------------------------------------ */
+async function loadService() {
+  const [service, load] = await Promise.all([
+    get(`/api/restaurants/${state.restaurant.id}/service?date=${state.date}`),
+    get(`/api/restaurants/${state.restaurant.id}/load`),
+  ]);
+  if (!service.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(service) }));
+  state.service = service.data;
+  const { stats, reservations, tables, alerts, restaurant } = service.data;
+  const tz = restaurant.timezone;
+
+  app.replaceChildren(
+    el('div', { class: 'row row--between row--wrap', style: 'margin-bottom:1rem' }, [
+      el('div', {}, [
+        el('h1', { text: 'Service en cours' }),
+        el('p', { class: 'muted small', style: 'margin:0',
+          text: formatDate(`${state.date}T12:00:00Z`, tz) }),
+      ]),
+      el('div', { class: 'row' }, [
+        el('input', {
+          type: 'date', value: state.date, style: 'width:auto',
+          onchange: (e) => { state.date = e.target.value; loadService(); },
+        }),
+        el('button', { class: 'btn btn--sm', onclick: () => openWalkIn() }, ['+ Walk-in']),
+        el('button', { class: 'btn btn--sm btn--primary', onclick: () => openNewReservation() }, ['+ Réservation']),
+      ]),
+    ]),
+
+    el('div', { class: 'grid grid--4', style: 'margin-bottom:1rem' }, [
+      statCard(stats.covers, 'Couverts'),
+      statCard(`${stats.tablesOccupied}/${stats.tablesTotal}`, 'Tables occupées'),
+      statCard(stats.expected, 'Arrivées attendues'),
+      statCard(stats.noShows, 'No-shows', stats.noShows > 0 ? 'danger' : ''),
+    ]),
+
+    alerts.length > 0 ? el('div', { class: 'card', style: 'margin-bottom:1rem' }, [
+      el('div', { class: 'card__head' }, [el('h3', { text: `Alertes (${alerts.length})` })]),
+      el('div', { class: 'card__body' }, alerts.map((alert) =>
+        el('div', { class: `alert-item ${alert.kind === 'no_show_candidate' ? 'alert-item--danger' : ''}` }, [
+          el('span', { text: alert.kind === 'no_show_candidate' ? '⛔' : '⏱️' }),
+          el('div', { class: 'list__main' }, [
+            el('div', { class: 'list__title', text: `${alert.guestName ?? alert.reference} · ${alert.tables.join(', ') || 'sans table'}` }),
+            el('div', { class: 'list__meta', text: `${alert.minutesLate} min de retard` }),
+          ]),
+          alert.kind === 'no_show_candidate'
+            ? el('button', { class: 'btn btn--sm btn--danger',
+                onclick: () => act(alert.reservationId, 'no-show', 'No-show enregistré') }, ['No-show'])
+            : el('button', { class: 'btn btn--sm',
+                onclick: () => act(alert.reservationId, 'seat', 'Client installé') }, ['Installer']),
+        ]))),
+    ]) : null,
+
+    el('div', { class: 'grid grid--main' }, [
+      el('div', { class: 'stack' }, [
+        el('div', { class: 'card' }, [
+          el('div', { class: 'card__head' }, [
+            el('h3', { text: 'Plan de salle' }),
+            el('span', { class: 'topbar__spacer', style: 'flex:1' }),
+            el('span', { class: 'tiny muted', text: `${stats.tablesFree} libres` }),
+          ]),
+          el('div', { class: 'card__body' }, [renderFloorCanvas(tables, { interactive: true })]),
+        ]),
+      ]),
+      el('div', { class: 'stack' }, [
+        el('div', { class: 'card' }, [
+          el('div', { class: 'card__head' }, [el('h3', { text: 'Charge des serveurs' })]),
+          el('div', { class: 'card__body' }, [renderLoad(load.data)]),
+        ]),
+        el('div', { class: 'card' }, [
+          el('div', { class: 'card__head' }, [el('h3', { text: `Réservations (${reservations.length})` })]),
+          el('div', { class: 'card__body', style: 'max-height:460px;overflow:auto' },
+            [renderReservationList(reservations, tz)]),
+        ]),
+      ]),
+    ]),
+  );
+}
+
+function statCard(value, label, tone = '') {
+  return el('div', { class: 'card stat' }, [
+    el('div', { class: 'stat__value', style: tone === 'danger' ? 'color:var(--danger)' : '', text: String(value) }),
+    el('div', { class: 'stat__label', text: label }),
+  ]);
+}
+
+function renderFloorCanvas(tables, { interactive = false } = {}) {
+  if (tables.length === 0) {
+    return el('div', { class: 'empty', text: 'Aucune table. Créez votre plan de salle.' });
+  }
+  const scale = 46;
+  const maxX = Math.max(...tables.map((t) => Number(t.pos_x) + Number(t.width))) + 1;
+  const maxY = Math.max(...tables.map((t) => Number(t.pos_y) + Number(t.height))) + 1;
+
+  const canvas = el('div', {
+    class: 'floor__canvas',
+    style: `width:${Math.max(maxX * scale, 300)}px;height:${Math.max(maxY * scale, 400)}px`,
+  }, tables.map((table) => el('div', {
+    class: `table-shape is-${table.live_status} ${table.shape === 'round' ? 'table-shape--round' : ''}`,
+    style: `left:${Number(table.pos_x) * scale}px;top:${Number(table.pos_y) * scale}px;`
+         + `width:${Math.max(Number(table.width) * scale, 52)}px;height:${Math.max(Number(table.height) * scale, 52)}px`,
+    title: `${table.code} · ${table.seats_max} places · ${TABLE_STATUS_LABELS[table.live_status]}`
+         + (table.current_reference ? ` · ${table.current_reference}` : ''),
+    onclick: interactive ? () => openTable(table) : null,
+  }, [
+    el('span', { text: table.code }),
+    el('span', { class: 'table-shape__seats', text: `${table.seats_max}p` }),
+  ])));
+
+  return el('div', { class: 'floor' }, [canvas]);
+}
+
+function renderLoad(load) {
+  if (!load?.servers?.length) {
+    return el('div', { class: 'empty small', text: 'Aucun serveur en service. Planifiez des shifts.' });
+  }
+  return el('div', {}, [
+    ...load.servers.map((s) => el('div', { class: 'server-row' }, [
+      el('div', { class: 'row row--between' }, [
+        el('span', { class: 'list__title', text: s.name }),
+        el('span', { class: 'small muted', text: `${s.tables} tables · ${s.covers} couverts` }),
+      ]),
+      el('div', { class: 'meter', style: 'margin-top:.35rem' }, [
+        el('div', {
+          class: `meter__fill ${s.loadPct > 95 ? 'meter__fill--danger' : s.loadPct > 75 ? 'meter__fill--warn' : ''}`,
+          style: `width:${Math.min(s.loadPct, 100)}%`,
+        }),
+      ]),
+    ])),
+    load.recommendation ? el('div', {
+      class: 'brief__suggestion', style: 'margin-top:.8rem',
+    }, [
+      el('strong', { text: '💡 ' }),
+      load.recommendation.message,
+    ]) : null,
+  ]);
+}
+
+function renderReservationList(reservations, tz) {
+  if (reservations.length === 0) {
+    return el('div', { class: 'empty small', text: 'Aucune réservation sur ce service.' });
+  }
+  return el('ul', { class: 'list' }, reservations.map((r) => el('li', { class: 'list__item' }, [
+    el('span', { class: 'time', text: formatTime(r.starts_at, tz) }),
+    el('div', { class: 'list__main' }, [
+      el('div', { class: 'list__title' }, [
+        r.guestName ?? 'Sans nom',
+        r.has_critical_preference ? el('span', { class: 'tag tag--danger', style: 'margin-left:.4rem', text: '⚠ allergie' }) : null,
+        r.vip ? el('span', { class: 'tag tag--amber', style: 'margin-left:.4rem', text: '⭐ VIP' }) : null,
+      ]),
+      el('div', { class: 'list__meta',
+        text: [`${r.party_size} pers.`, r.table_codes.join(', ') || 'sans table',
+               r.server_name ? `→ ${r.server_name}` : null].filter(Boolean).join(' · ') }),
+    ]),
+    el('div', { class: 'stack', style: 'gap:.3rem;align-items:flex-end' }, [
+      statusTag(r.status),
+      r.status === 'confirmed'
+        ? el('button', { class: 'btn btn--sm', onclick: () => act(r.id, 'seat', 'Client installé') }, ['Installer'])
+        : r.status === 'seated'
+        ? el('button', { class: 'btn btn--sm', onclick: () => act(r.id, 'complete', 'Service terminé') }, ['Terminer'])
+        : null,
+    ]),
+  ])));
+}
+
+async function act(reservationId, action, successMessage) {
+  const result = await post(`/api/reservations/${reservationId}/${action}`);
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+  toast(successMessage, 'ok');
+  loadService();
+}
+
+/* --- Tiroir table ------------------------------------------------------ */
+function openTable(table) {
+  const linked = state.service.reservations.filter((r) => r.table_ids.includes(table.id));
+  openDrawer(`Table ${table.code}`, el('div', { class: 'stack' }, [
+    el('div', { class: 'row row--wrap' }, [
+      el('span', { class: 'tag', text: `${table.seats_max} places` }),
+      el('span', { class: 'tag tag--accent', text: TABLE_STATUS_LABELS[table.live_status] }),
+      table.zone_name ? el('span', { class: 'tag', text: table.zone_name }) : null,
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'Changer le statut' }),
+      el('select', {
+        onchange: async (e) => {
+          const result = await post(
+            `/api/restaurants/${state.restaurant.id}/tables/${table.id}/status`,
+            { status: e.target.value });
+          if (!result.ok) return toast(errorMessage(result), 'danger');
+          toast('Statut mis à jour', 'ok');
+          closeDrawer(); loadService();
+        },
+      }, Object.entries(TABLE_STATUS_LABELS).map(([value, label]) =>
+        el('option', { value, text: label, selected: value === table.live_status }))),
+    ]),
+    el('h4', { text: 'Sur cette table aujourd\'hui' }),
+    linked.length > 0
+      ? renderReservationList(linked, state.service.restaurant.timezone)
+      : el('p', { class: 'muted small', text: 'Aucune réservation.' }),
+  ]));
+}
+
+/* --- Nouvelle réservation / walk-in ------------------------------------ */
+function openNewReservation() {
+  openDrawer('Nouvelle réservation', el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/reservations`, {
+        startsAt: new Date(form.get('startsAt')).toISOString(),
+        partySize: Number(form.get('partySize')),
+        guest: {
+          firstName: form.get('firstName') || null,
+          lastName: form.get('lastName') || null,
+          phone: form.get('phone') || null,
+        },
+        staffNotes: form.get('notes') || null,
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      toast(`Réservation ${result.data.reservation.reference} créée`, 'ok');
+      closeDrawer(); loadService();
+    },
+  }, [
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [
+        el('label', { text: 'Date et heure' }),
+        el('input', { type: 'datetime-local', name: 'startsAt', required: true }),
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { text: 'Couverts' }),
+        el('input', { type: 'number', name: 'partySize', min: '1', max: '50', value: '2', required: true }),
+      ]),
+    ]),
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Prénom' }), el('input', { name: 'firstName' })]),
+      el('div', { class: 'field' }, [el('label', { text: 'Nom' }), el('input', { name: 'lastName' })]),
+    ]),
+    el('div', { class: 'field' }, [el('label', { text: 'Téléphone' }), el('input', { name: 'phone', type: 'tel' })]),
+    el('div', { class: 'field' }, [el('label', { text: 'Note interne' }), el('textarea', { name: 'notes' })]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Créer et attribuer']),
+  ]));
+}
+
+function openWalkIn() {
+  openDrawer('Walk-in', el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/walk-ins`, {
+        partySize: Number(form.get('partySize')),
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      toast(`Installé en ${result.data.tableIds.length} table(s)`, 'ok');
+      closeDrawer(); loadService();
+    },
+  }, [
+    el('p', { class: 'muted small', text: 'Le client est déjà là : ORSYNE cherche une table libre immédiatement.' }),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'Couverts' }),
+      el('input', { type: 'number', name: 'partySize', min: '1', max: '30', value: '2', required: true }),
+    ]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Installer maintenant']),
+  ]));
+}
+
+/* --- Autres vues -------------------------------------------------------- */
+async function loadFloor() {
+  const floor = await get(`/api/restaurants/${state.restaurant.id}/floor`);
+  if (!floor.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(floor) }));
+  const { zones, tables } = floor.data;
+
+  app.replaceChildren(
+    el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
+      el('h1', { text: 'Plan de salle' }),
+      el('div', { class: 'row' }, [
+        el('button', { class: 'btn btn--sm', onclick: () => openZoneForm() }, ['+ Zone']),
+        el('button', { class: 'btn btn--sm btn--primary', onclick: () => openTableForm(zones) }, ['+ Table']),
+      ]),
+    ]),
+    el('div', { class: 'grid grid--main' }, [
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__body' }, [renderFloorCanvas(tables.filter((t) => t.is_active))]),
+      ]),
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__head' }, [el('h3', { text: `Tables (${tables.filter((t) => t.is_active).length})` })]),
+        el('div', { class: 'card__body', style: 'max-height:520px;overflow:auto' }, [
+          el('table', { class: 'data' }, [
+            el('thead', {}, [el('tr', {}, [
+              el('th', { text: 'Code' }), el('th', { text: 'Zone' }),
+              el('th', { text: 'Places' }), el('th', { text: 'Client' }), el('th', {}),
+            ])]),
+            el('tbody', {}, tables.filter((t) => t.is_active).map((t) => el('tr', {}, [
+              el('td', {}, [el('strong', { text: t.code })]),
+              el('td', { class: 'small muted', text: zones.find((z) => z.id === t.zone_id)?.name ?? '—' }),
+              el('td', { text: `${t.seats_min}–${t.seats_max}` }),
+              el('td', {}, [t.guest_selectable
+                ? el('span', { class: 'tag tag--ok', text: 'Réservable' })
+                : el('span', { class: 'tag', text: 'Interne' })]),
+              el('td', {}, [el('button', {
+                class: 'btn btn--sm btn--danger',
+                onclick: async () => {
+                  if (!confirm(`Désactiver la table ${t.code} ?`)) return;
+                  await patch(`/api/restaurants/${state.restaurant.id}/tables/${t.id}`, { isActive: false });
+                  loadFloor();
+                },
+              }, ['×'])]),
+            ]))),
+          ]),
+        ]),
+      ]),
+    ]),
+  );
+}
+
+function openZoneForm() {
+  openDrawer('Nouvelle zone', el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/zones`, {
+        name: form.get('name'), kind: form.get('kind'),
+        guestSelectable: form.get('guestSelectable') === 'on',
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      closeDrawer(); loadFloor();
+    },
+  }, [
+    el('div', { class: 'field' }, [el('label', { text: 'Nom' }), el('input', { name: 'name', required: true })]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'Type' }),
+      el('select', { name: 'kind' }, [
+        ['dining_room', 'Salle'], ['terrace', 'Terrasse'], ['bar', 'Bar'],
+        ['private_room', 'Salon privé'], ['vip', 'VIP'], ['lounge', 'Lounge'],
+      ].map(([value, label]) => el('option', { value, text: label }))),
+    ]),
+    el('div', { class: 'field row', style: 'gap:.5rem' }, [
+      el('input', { type: 'checkbox', name: 'guestSelectable', checked: true, style: 'width:auto' }),
+      el('label', { style: 'margin:0;font-weight:400', text: 'Visible et choisissable par les clients' }),
+    ]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Créer la zone']),
+  ]));
+}
+
+function openTableForm(zones) {
+  openDrawer('Nouvelle table', el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/tables`, {
+        code: form.get('code'),
+        zoneId: form.get('zoneId') || null,
+        seatsMin: Number(form.get('seatsMin')),
+        seatsMax: Number(form.get('seatsMax')),
+        shape: form.get('shape'),
+        posX: Number(form.get('posX')), posY: Number(form.get('posY')),
+        guestSelectable: form.get('guestSelectable') === 'on',
+        combinable: form.get('combinable') === 'on',
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      closeDrawer(); loadFloor();
+    },
+  }, [
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Code' }), el('input', { name: 'code', required: true, placeholder: 'T14' })]),
+      el('div', { class: 'field' }, [
+        el('label', { text: 'Zone' }),
+        el('select', { name: 'zoneId' }, [el('option', { value: '', text: '—' }),
+          ...zones.map((z) => el('option', { value: z.id, text: z.name }))]),
+      ]),
+    ]),
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Places min' }), el('input', { type: 'number', name: 'seatsMin', value: '1', min: '1' })]),
+      el('div', { class: 'field' }, [el('label', { text: 'Places max' }), el('input', { type: 'number', name: 'seatsMax', value: '4', min: '1', required: true })]),
+    ]),
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Position X' }), el('input', { type: 'number', name: 'posX', value: '0', step: '0.5' })]),
+      el('div', { class: 'field' }, [el('label', { text: 'Position Y' }), el('input', { type: 'number', name: 'posY', value: '0', step: '0.5' })]),
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'Forme' }),
+      el('select', { name: 'shape' }, [['round', 'Ronde'], ['square', 'Carrée'], ['rect', 'Rectangulaire'], ['booth', 'Banquette']]
+        .map(([value, label]) => el('option', { value, text: label }))),
+    ]),
+    el('div', { class: 'field row', style: 'gap:.5rem' }, [
+      el('input', { type: 'checkbox', name: 'guestSelectable', style: 'width:auto' }),
+      el('label', { style: 'margin:0;font-weight:400', text: 'Le client peut choisir cette table' }),
+    ]),
+    el('div', { class: 'field row', style: 'gap:.5rem' }, [
+      el('input', { type: 'checkbox', name: 'combinable', style: 'width:auto' }),
+      el('label', { style: 'margin:0;font-weight:400', text: 'Combinable avec d\'autres tables' }),
+    ]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Créer la table']),
+  ]));
+}
+
+async function loadReservations() {
+  const from = new Date(`${state.date}T00:00:00Z`).toISOString();
+  const to = new Date(`${state.date}T23:59:59Z`).toISOString();
+  const result = await get(
+    `/api/restaurants/${state.restaurant.id}/reservations?from=${from}&to=${to}`);
+  if (!result.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(result) }));
+  const tz = state.restaurant.timezone;
+
+  app.replaceChildren(
+    el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
+      el('h1', { text: 'Réservations' }),
+      el('input', { type: 'date', value: state.date, style: 'width:auto',
+        onchange: (e) => { state.date = e.target.value; loadReservations(); } }),
+    ]),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__body' }, result.data.length === 0
+        ? [el('div', { class: 'empty', text: 'Aucune réservation ce jour-là.' })]
+        : [el('table', { class: 'data' }, [
+            el('thead', {}, [el('tr', {}, ['Heure', 'Référence', 'Client', 'Couverts', 'Tables', 'Statut', '']
+              .map((h) => el('th', { text: h })))]),
+            el('tbody', {}, result.data.map((r) => el('tr', {}, [
+              el('td', {}, [el('strong', { text: formatTime(r.starts_at, tz) })]),
+              el('td', {}, [el('span', { class: 'mono', text: r.reference })]),
+              el('td', { text: [r.first_name, r.last_name].filter(Boolean).join(' ') || '—' }),
+              el('td', { text: String(r.party_size) }),
+              el('td', { class: 'small', text: r.table_codes.join(', ') || '—' }),
+              el('td', {}, [statusTag(r.status)]),
+              el('td', {}, [
+                ['cancelled', 'no_show', 'completed'].includes(r.status) ? null
+                  : el('button', { class: 'btn btn--sm btn--danger',
+                      onclick: async () => {
+                        if (!confirm(`Annuler la réservation ${r.reference} ?`)) return;
+                        const res = await post(`/api/reservations/${r.id}/cancel`, { reason: 'annulation restaurant' });
+                        if (!res.ok) return toast(errorMessage(res), 'danger');
+                        toast('Réservation annulée', 'ok'); loadReservations();
+                      } }, ['Annuler']),
+              ]),
+            ]))),
+          ])]),
+    ]),
+  );
+}
+
+async function loadGuests() {
+  const render = async (query = '') => {
+    const result = await get(`/api/guests?q=${encodeURIComponent(query)}`);
+    const body = document.getElementById('guest-results');
+    if (!body) return;
+    if (!result.ok) return body.replaceChildren(el('div', { class: 'empty', text: errorMessage(result) }));
+    body.replaceChildren(result.data.length === 0
+      ? el('div', { class: 'empty', text: 'Aucun client.' })
+      : el('table', { class: 'data' }, [
+          el('thead', {}, [el('tr', {}, ['Client', 'Contact', 'Visites', 'No-shows', 'Dernière visite']
+            .map((h) => el('th', { text: h })))]),
+          el('tbody', {}, result.data.map((g) => el('tr', {
+            style: 'cursor:pointer', onclick: () => openGuest(g.id),
+          }, [
+            el('td', {}, [
+              el('strong', { text: [g.first_name, g.last_name].filter(Boolean).join(' ') || '—' }),
+              g.vip ? el('span', { class: 'tag tag--amber', style: 'margin-left:.4rem', text: 'VIP' }) : null,
+            ]),
+            el('td', { class: 'small muted', text: g.phone_e164 ?? g.email ?? '—' }),
+            el('td', { text: String(g.visits) }),
+            el('td', { text: String(g.no_shows), style: Number(g.no_shows) > 0 ? 'color:var(--danger)' : '' }),
+            el('td', { class: 'small muted',
+              text: g.last_visit_at ? formatDate(g.last_visit_at, state.restaurant.timezone) : '—' }),
+          ]))),
+        ]));
+  };
+
+  app.replaceChildren(
+    el('h1', { text: 'Clients', style: 'margin-bottom:1rem' }),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__head' }, [
+        el('input', { type: 'search', placeholder: 'Nom, téléphone, email…',
+          oninput: (e) => render(e.target.value) }),
+      ]),
+      el('div', { class: 'card__body', id: 'guest-results' }, [
+        el('div', { class: 'spinner', style: 'margin:1rem auto' }),
+      ]),
+    ]),
+  );
+  render();
+}
+
+async function openGuest(guestId) {
+  const result = await get(`/api/guests/${guestId}`);
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+  const { guest, stats, preferences, facts, insights, history } = result.data;
+  const tz = state.restaurant.timezone;
+
+  openDrawer([guest.first_name, guest.last_name].filter(Boolean).join(' ') || 'Client', el('div', { class: 'stack' }, [
+    el('div', { class: 'row row--wrap' }, [
+      guest.vip ? el('span', { class: 'tag tag--amber', text: '⭐ VIP' }) : null,
+      el('span', { class: 'tag', text: guest.locale }),
+      guest.phone_e164 ? el('span', { class: 'tag', text: guest.phone_e164 }) : null,
+      guest.email ? el('span', { class: 'tag', text: guest.email }) : null,
+    ]),
+
+    stats.length > 0 ? el('div', { class: 'grid grid--3' }, [
+      statCard(stats.reduce((n, s) => n + s.visits, 0), 'Visites'),
+      statCard(stats.reduce((n, s) => n + s.no_shows, 0), 'No-shows'),
+      statCard(stats.reduce((n, s) => n + s.cancellations, 0), 'Annulations'),
+    ]) : null,
+
+    preferences.length > 0 ? el('div', {}, [
+      el('h4', { text: 'Préférences déclarées' }),
+      el('div', { class: 'row row--wrap' }, preferences.map((p) =>
+        el('span', { class: `tag ${p.is_critical ? 'tag--danger' : ''}`,
+          text: `${p.is_critical ? '⚠ ' : ''}${p.value}` }))),
+    ]) : null,
+
+    facts.length > 0 ? el('div', {}, [
+      el('h4', { text: 'Faits observés' }),
+      el('ul', { class: 'list' }, facts.map((f) => el('li', { class: 'list__item' }, [
+        el('span', { class: 'list__main small', text: f.subject.replace(/^\w+:/, '') }),
+        el('span', { class: 'tag', text: `${f.occurrences}×` }),
+      ]))),
+    ]) : null,
+
+    insights.length > 0 ? el('div', {}, [
+      el('h4', { text: 'Déductions IA' }),
+      el('p', { class: 'tiny muted', text: 'Hypothèses, pas des faits. Vous pouvez les rejeter.' }),
+      ...insights.map((i) => el('div', { class: 'brief__suggestion' }, [
+        el('div', { text: i.statement }),
+        el('div', { class: 'row', style: 'margin-top:.4rem;gap:.4rem' }, [
+          el('span', { class: 'tag', text: `confiance ${Math.round(i.confidence * 100)} %` }),
+          i.status === 'proposed' ? el('button', { class: 'btn btn--sm',
+            onclick: async () => {
+              await post(`/api/insights/${i.id}/review`, { status: 'accepted' });
+              toast('Déduction validée', 'ok'); closeDrawer(); openGuest(guestId);
+            } }, ['Valider']) : null,
+          i.status !== 'rejected' ? el('button', { class: 'btn btn--sm btn--danger',
+            onclick: async () => {
+              await post(`/api/insights/${i.id}/review`, { status: 'rejected' });
+              toast('Déduction rejetée', 'ok'); closeDrawer(); openGuest(guestId);
+            } }, ['Rejeter']) : null,
+        ]),
+      ])),
+    ]) : null,
+
+    el('div', {}, [
+      el('h4', { text: 'Historique' }),
+      history.length === 0
+        ? el('p', { class: 'muted small', text: 'Aucune visite enregistrée.' })
+        : el('ul', { class: 'list' }, history.slice(0, 12).map((h) => el('li', { class: 'list__item' }, [
+            el('span', { class: 'small', text: formatDate(h.starts_at, tz) }),
+            el('span', { class: 'list__main small muted', text: `${h.party_size} pers.` }),
+            statusTag(h.status),
+          ]))),
+    ]),
+
+    el('div', { class: 'row', style: 'gap:.4rem' }, [
+      el('a', { class: 'btn btn--sm', href: `/api/guests/${guestId}/export`, download: true }, ['Exporter (RGPD)']),
+      el('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
+        if (!confirm('Anonymiser définitivement ce client ? Cette action est irréversible.')) return;
+        const deleted = await del(`/api/guests/${guestId}`);
+        if (!deleted.ok) return toast(errorMessage(deleted, 'Suppression impossible.'), 'danger');
+        toast('Client anonymisé', 'ok'); closeDrawer(); loadGuests();
+      } }, ['Anonymiser']),
+    ]),
+  ]));
+}
+
+async function loadTeam() {
+  const [staff, shifts] = await Promise.all([
+    get(`/api/restaurants/${state.restaurant.id}/staff`),
+    get(`/api/restaurants/${state.restaurant.id}/shifts?from=${new Date().toISOString()}`),
+  ]);
+  if (!staff.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(staff) }));
+  const ROLES = { owner: 'Propriétaire', manager: 'Manager', floor_manager: 'Responsable de salle', server: 'Serveur', kitchen: 'Cuisine' };
+
+  app.replaceChildren(
+    el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
+      el('h1', { text: 'Équipe' }),
+      el('div', { class: 'row' }, [
+        el('button', { class: 'btn btn--sm', onclick: () => openShiftForm(staff.data) }, ['+ Shift']),
+        el('button', { class: 'btn btn--sm btn--primary', onclick: () => openStaffForm() }, ['+ Membre']),
+      ]),
+    ]),
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__head' }, [el('h3', { text: 'Membres' })]),
+        el('div', { class: 'card__body' }, [
+          el('table', { class: 'data' }, [
+            el('thead', {}, [el('tr', {}, ['Nom', 'Rôle', 'Capacité', 'Statut'].map((h) => el('th', { text: h })))]),
+            el('tbody', {}, staff.data.map((u) => el('tr', {}, [
+              el('td', {}, [el('strong', { text: u.display_name ?? u.full_name }),
+                el('div', { class: 'tiny muted', text: u.email })]),
+              el('td', {}, [el('span', { class: 'tag tag--accent', text: ROLES[u.role] ?? u.role })]),
+              el('td', { class: 'small muted',
+                text: u.max_tables ? `${u.max_tables} tables · ${u.max_covers} couverts` : '—' }),
+              el('td', {}, [el('span', {
+                class: `tag ${u.status === 'active' ? 'tag--ok' : 'tag--warn'}`,
+                text: u.status === 'active' ? 'Actif' : 'Invité' })]),
+            ]))),
+          ]),
+        ]),
+      ]),
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__head' }, [el('h3', { text: 'Shifts à venir' })]),
+        el('div', { class: 'card__body' }, shifts.ok && shifts.data.length > 0
+          ? [el('ul', { class: 'list' }, shifts.data.slice(0, 20).map((s) => el('li', { class: 'list__item' }, [
+              el('div', { class: 'list__main' }, [
+                el('div', { class: 'list__title', text: s.name }),
+                el('div', { class: 'list__meta',
+                  text: `${formatDate(s.starts_at, state.restaurant.timezone)} · `
+                      + `${formatTime(s.starts_at, state.restaurant.timezone)}–${formatTime(s.ends_at, state.restaurant.timezone)}` }),
+              ]),
+              el('span', { class: 'tag', text: s.status === 'clocked_in' ? 'En service' : 'Planifié' }),
+            ])))]
+          : [el('div', { class: 'empty small', text: 'Aucun shift planifié.' })]),
+      ]),
+    ]),
+  );
+}
+
+function openStaffForm() {
+  openDrawer('Nouveau membre', el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/staff`, {
+        email: form.get('email'), fullName: form.get('fullName'),
+        role: form.get('role'), password: form.get('password') || null,
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      toast('Membre ajouté', 'ok'); closeDrawer(); loadTeam();
+    },
+  }, [
+    el('div', { class: 'field' }, [el('label', { text: 'Nom complet' }), el('input', { name: 'fullName', required: true })]),
+    el('div', { class: 'field' }, [el('label', { text: 'Email' }), el('input', { name: 'email', type: 'email', required: true })]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'Rôle' }),
+      el('select', { name: 'role' }, [['server', 'Serveur'], ['floor_manager', 'Responsable de salle'],
+        ['manager', 'Manager'], ['kitchen', 'Cuisine']].map(([v, l]) => el('option', { value: v, text: l }))),
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: 'Mot de passe provisoire' }),
+      el('input', { name: 'password', type: 'text', minlength: '10', placeholder: 'au moins 10 caractères' }),
+      el('div', { class: 'field__hint', text: 'Laissez vide pour créer une invitation sans accès immédiat.' }),
+    ]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Ajouter']),
+  ]));
+}
+
+function openShiftForm(staff) {
+  const servers = staff.filter((u) => ['server', 'floor_manager'].includes(u.role));
+  openDrawer('Nouveau shift', el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/shifts`, {
+        userId: form.get('userId'),
+        startsAt: new Date(form.get('startsAt')).toISOString(),
+        endsAt: new Date(form.get('endsAt')).toISOString(),
+        status: 'confirmed',
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      toast('Shift planifié', 'ok'); closeDrawer(); loadTeam();
+    },
+  }, [
+    servers.length === 0
+      ? el('p', { class: 'muted small', text: 'Ajoutez d\'abord un serveur à votre équipe.' })
+      : el('div', { class: 'field' }, [
+          el('label', { text: 'Membre' }),
+          el('select', { name: 'userId', required: true }, servers.map((u) =>
+            el('option', { value: u.id, text: u.display_name ?? u.full_name }))),
+        ]),
+    el('div', { class: 'field' }, [el('label', { text: 'Début' }), el('input', { type: 'datetime-local', name: 'startsAt', required: true })]),
+    el('div', { class: 'field' }, [el('label', { text: 'Fin' }), el('input', { type: 'datetime-local', name: 'endsAt', required: true })]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit', disabled: servers.length === 0 }, ['Planifier']),
+  ]));
+}
+
+async function loadAnalytics() {
+  const to = new Date();
+  const from = new Date(to.getTime() - 30 * 86_400_000);
+  const result = await get(`/api/restaurants/${state.restaurant.id}/analytics`
+    + `?from=${from.toISOString()}&to=${to.toISOString()}`);
+  if (!result.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(result) }));
+  const d = result.data;
+
+  app.replaceChildren(
+    el('h1', { text: 'Analytics', style: 'margin-bottom:.25rem' }),
+    el('p', { class: 'muted small', style: 'margin-bottom:1rem', text: '30 derniers jours' }),
+    el('div', { class: 'grid grid--4', style: 'margin-bottom:1rem' }, [
+      statCard(d.totals.reservations, 'Réservations'),
+      statCard(d.totals.covers, 'Couverts'),
+      statCard(`${d.totals.noShowRate} %`, 'Taux de no-show', d.totals.noShowRate > 5 ? 'danger' : ''),
+      statCard(d.occupancyRate === null ? '—' : `${d.occupancyRate} %`, 'Taux d\'occupation'),
+    ]),
+    el('div', { class: 'grid grid--3' }, [
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__head' }, [el('h3', { text: 'Sources' })]),
+        el('div', { class: 'card__body' }, d.bySource.length === 0
+          ? [el('div', { class: 'empty small', text: 'Aucune donnée.' })]
+          : [el('ul', { class: 'list' }, d.bySource.map((s) => el('li', { class: 'list__item' }, [
+              el('span', { class: 'list__main', text: SOURCE_LABELS[s.source] ?? s.source }),
+              el('span', { class: 'tag', text: `${s.reservations}` }),
+            ])))]),
+      ]),
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__head' }, [el('h3', { text: 'Performance des serveurs' })]),
+        el('div', { class: 'card__body' }, d.byServer.length === 0
+          ? [el('div', { class: 'empty small', text: 'Aucune donnée.' })]
+          : [el('ul', { class: 'list' }, d.byServer.map((s) => el('li', { class: 'list__item' }, [
+              el('span', { class: 'list__main', text: s.name }),
+              el('span', { class: 'small muted', text: `${s.covers} couverts` }),
+            ])))]),
+      ]),
+      el('div', { class: 'card' }, [
+        el('div', { class: 'card__head' }, [el('h3', { text: 'Clientèle' })]),
+        el('div', { class: 'card__body' }, [
+          el('ul', { class: 'list' }, [
+            el('li', { class: 'list__item' }, [
+              el('span', { class: 'list__main', text: 'Clients fidèles' }),
+              el('span', { class: 'tag tag--ok', text: String(d.guests.returning_guests) }),
+            ]),
+            el('li', { class: 'list__item' }, [
+              el('span', { class: 'list__main', text: 'Nouveaux clients' }),
+              el('span', { class: 'tag tag--accent', text: String(d.guests.new_guests) }),
+            ]),
+            el('li', { class: 'list__item' }, [
+              el('span', { class: 'list__main', text: 'Appels traités par l\'IA' }),
+              el('span', { class: 'tag', text: String(d.ai.calls) }),
+            ]),
+          ]),
+        ]),
+      ]),
+    ]),
+  );
+}
+
+const SOURCE_LABELS = {
+  widget: 'Site / widget', phone_ai: 'IA téléphonique', phone_staff: 'Téléphone (équipe)',
+  walk_in: 'Walk-in', staff: 'Saisie équipe', partner: 'Partenaire', google: 'Google', import: 'Import',
+};
+
+/* --- Tiroir ------------------------------------------------------------ */
+function openDrawer(title, content) {
+  closeDrawer();
+  const drawer = el('div', {
+    class: 'drawer', id: 'drawer',
+    onclick: (event) => { if (event.target.id === 'drawer') closeDrawer(); },
+  }, [
+    el('div', { class: 'drawer__panel' }, [
+      el('div', { class: 'card__head' }, [
+        el('h2', { text: title }),
+        el('span', { style: 'flex:1' }),
+        el('button', { class: 'btn btn--sm', onclick: closeDrawer }, ['Fermer']),
+      ]),
+      el('div', { class: 'card__body' }, [content]),
+    ]),
+  ]);
+  document.body.append(drawer);
+  document.addEventListener('keydown', onEscape);
+}
+
+function closeDrawer() {
+  document.getElementById('drawer')?.remove();
+  document.removeEventListener('keydown', onEscape);
+}
+
+function onEscape(event) { if (event.key === 'Escape') closeDrawer(); }
+
+boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "name": "ORSYNE — Salle",
+  "short_name": "ORSYNE",
+  "description": "Le service en salle : vos tables, vos clients, au bon moment.",
+  "start_url": "/app/salle.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1220",
+  "theme_color": "#0d1220"
+}

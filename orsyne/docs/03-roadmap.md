@@ -9,57 +9,53 @@ livrée avec ses tests automatisés.
 | # | Étape | État |
 |---|---|---|
 | 1 | Architecture + schéma DB + multi-tenant | ✅ livré |
-| 2 | Authentification + rôles (RBAC) | à faire |
-| 3 | Restaurant + tables + plan de salle (API + UI) | schéma livré, UI à faire |
-| 4 | Moteur de réservation | ✅ cœur livré |
-| 5 | CRM | schéma livré, API à faire |
-| 6 | Serveurs + attribution | ✅ scoring livré, planning API à faire |
-| 7 | Notifications temps réel | outbox livré, WebSocket à faire |
-| 8 | Interface client (widget de réservation) | à faire |
-| 9 | IA téléphonique | schéma livré, agent à faire |
-| 10 | Intégrations POS/KDS/PSP | couche d'abstraction livrée |
+| 2 | Authentification + rôles (RBAC) | ✅ livré |
+| 3 | Restaurant + tables + plan de salle | ✅ livré |
+| 4 | Moteur de réservation | ✅ livré |
+| 5 | CRM | ✅ livré |
+| 6 | Serveurs + attribution | ✅ livré |
+| 7 | Notifications temps réel | ✅ livré |
+| 8 | Interface client | ✅ livré |
+| 9 | IA téléphonique | schéma et traçabilité prêts, agent à brancher |
+| 10 | Intégrations POS/KDS/PSP | couche d'abstraction prête, connecteurs à écrire |
 
-## Ce qui est livré aujourd'hui
+Les huit premières étapes sont terminées et testées. C'est un produit
+commercialisable : un restaurant peut l'installer, prendre des
+réservations en ligne, faire tourner son service et suivre ses clients.
 
-**Étape 1 — complète.**
-- 6 migrations, 30 tables, multi-tenant avec RLS forcée sur toutes.
-- Rôle applicatif `NOBYPASSRLS`, contexte par transaction.
-- Audit log append-only, outbox transactionnel.
+## Ce qui reste à brancher
 
-**Étape 4 — le cœur.**
-- Disponibilité par service, règles de réservation, fermetures.
-- Attribution automatique classée (capacité, zone, préférences CRM,
-  rotation, combinaisons) et attribution manuelle prioritaire.
-- Cycle de vie complet : création, acompte, confirmation, installation,
-  fin de service, annulation, no-show, déplacement, walk-in.
-- Acomptes / préautorisations / paiement intégral modélisés séparément,
-  avec maintien de table expirant.
+**Étape 9 — IA téléphonique.** Le schéma (`ai_calls`, transcriptions,
+issue d'appel, transfert humain) et toute la logique métier sont en
+place : l'agent vocal n'a qu'à appeler les mêmes routes que le widget.
+Il reste à choisir le fournisseur voix et à écrire l'agent.
 
-**Étape 6 — le scoring.**
-- Classement des serveurs par charge réelle, rang déclaré, couverts.
+**Étape 10 — Intégrations.** `integrations`, `external_references` et
+`webhook_deliveries` existent, avec le stockage des charges brutes. Il
+reste à écrire les connecteurs POS et PSP eux-mêmes — un par fournisseur,
+sans toucher au produit.
 
-**46 tests automatisés, tous verts**, dont la preuve par la concurrence que
-deux clients ne peuvent pas obtenir la même table.
+**Paiement réel.** Le cycle acompte / préautorisation / paiement intégral
+est modélisé et testé de bout en bout ; `confirm-payment` enregistre le
+résultat. Il reste à intercaler Stripe (ou un autre PSP) entre les deux,
+et à traiter son webhook.
 
 ## Prochaine étape recommandée
 
-**Étape 2 (auth + RBAC) puis étape 8 (widget client).**
+Mettre le produit devant cinq restaurants avant d'écrire l'étape 9.
 
-Raison : le moteur est solide mais invisible. Un widget de réservation
-branché dessus est ce qui permet de mettre le produit devant cinq
-restaurants et de vérifier qu'ils paient — avant d'écrire les trois ans de
-produit que décrit le cahier des charges.
+Ce qui est livré suffit à vendre : un restaurateur peut créer son compte,
+dessiner sa salle, ouvrir ses réservations en ligne et faire son service
+le soir même. Les retours de ces cinq clients vaudront plus que six mois
+de développement supplémentaire à l'aveugle.
 
-Ordre de travail suggéré :
+Dans l'ordre :
 
-1. Auth (sessions, rôles, périmètre par établissement) — 1 sprint.
-2. API HTTP sur le moteur existant — 1 sprint.
-3. Widget client : disponibilité, choix de zone, acompte Stripe — 1 sprint.
-4. Dashboard de service temps réel (le plus vendeur en démo) — 1 sprint.
-5. PWA serveur — 1 sprint.
-
-À ce stade le produit est démontrable et facturable. L'IA téléphonique et
-les intégrations POS viennent ensuite, sur des clients réels.
+1. Brancher un vrai PSP sur l'acompte (2–3 jours).
+2. Envoi des emails et SMS de confirmation et de rappel (2–3 jours).
+3. Mise en production : hébergement, sauvegardes, monitoring (2–3 jours).
+4. Installer cinq restaurants, les regarder s'en servir.
+5. **Ensuite seulement** : IA téléphonique, puis intégrations POS.
 
 ## V2 / V3
 

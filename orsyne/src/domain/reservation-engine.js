@@ -445,6 +445,26 @@ export async function seatReservation(client, { reservationId, actorUserId = nul
       WHERE id = $1`,
     [reservationId, now],
   );
+
+  // Arrivee en avance : la table est prise des maintenant, pas a l'heure
+  // prevue. On avance donc le debut de l'occupation, sinon le plan de
+  // salle afficherait « libre » une table ou des clients sont assis.
+  // Si ce creneau anterieur appartient deja a quelqu'un d'autre, on
+  // conserve l'intervalle initial : on ne prend pas la place d'un tiers.
+  await client.query('SAVEPOINT extend_occupancy');
+  try {
+    await client.query(
+      `UPDATE table_occupancies
+          SET occupied_during = tstzrange($2, upper(occupied_during), '[)')
+        WHERE reservation_id = $1 AND is_active AND lower(occupied_during) > $2`,
+      [reservationId, now],
+    );
+    await client.query('RELEASE SAVEPOINT extend_occupancy');
+  } catch (error) {
+    await client.query('ROLLBACK TO SAVEPOINT extend_occupancy');
+    await client.query('RELEASE SAVEPOINT extend_occupancy');
+    if (error.code !== PG_EXCLUSION_VIOLATION) throw error;
+  }
   const { rows: tables } = await client.query(
     `UPDATE restaurant_tables SET live_status = 'seated'
       WHERE id IN (SELECT table_id FROM table_occupancies

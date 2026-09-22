@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Réserver — ORSYNE</title>
+<meta name="description" content="Réservez votre table. Tout s'accorde.">
+<link rel="stylesheet" href="/assets/orsyne.css">
+<style>
+  body { background: var(--surface-2); }
+  .hero { padding: 2rem 0 1.25rem; }
+  .steps { display: flex; gap: .4rem; margin-bottom: 1.25rem; }
+  .step {
+    flex: 1; height: 3px; border-radius: 999px; background: var(--surface-3);
+    transition: background .25s;
+  }
+  .step.is-done { background: var(--accent); }
+  .party { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .party button { min-width: 3rem; }
+  .zone-card {
+    display: flex; gap: .75rem; align-items: center; width: 100%; text-align: left;
+    padding: .8rem; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+    cursor: pointer; font: inherit; transition: all .12s;
+  }
+  .zone-card:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .zone-card[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
+  .zone-card__icon { font-size: 1.4rem; }
+  .summary { background: var(--surface-3); border-radius: var(--radius-sm); padding: .85rem 1rem; }
+  .summary dl { display: grid; grid-template-columns: auto 1fr; gap: .3rem .9rem; margin: 0; }
+  .summary dt { color: var(--text-soft); font-size: .85rem; }
+  .summary dd { margin: 0; font-weight: 600; text-align: right; }
+  .confirm-ref {
+    font-family: var(--mono); font-size: 1.6rem; font-weight: 700;
+    letter-spacing: .12em; padding: .6rem 1rem;
+    background: var(--accent-soft); color: var(--accent-text);
+    border-radius: var(--radius-sm); display: inline-block;
+  }
+  .deposit-notice {
+    border-left: 3px solid var(--amber); background: var(--amber-soft);
+    padding: .75rem .9rem; border-radius: var(--radius-sm); margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <div class="brand">
+      <span class="brand__name">Orsyne</span>
+      <span class="brand__tagline">Tout s'accorde.</span>
+    </div>
+    <div class="topbar__spacer"></div>
+    <a class="small" href="#" id="lookup-link">J'ai déjà une réservation</a>
+  </div>
+</header>
+
+<main class="wrap wrap--narrow" id="app">
+  <div class="hero center">
+    <div class="spinner" style="margin: 2rem auto;"></div>
+  </div>
+</main>
+
+<script type="module">
+import { get, post, el, esc, toast, errorMessage, formatTime, formatDate, formatMoney, todayIso, addDays }
+  from '/assets/orsyne.js';
+
+// Le slug vient du chemin (/r/mon-restaurant) ou de ?r=mon-restaurant.
+const slug = new URLSearchParams(location.search).get('r')
+  ?? location.pathname.split('/').filter(Boolean).pop()
+  ?? '';
+
+const app = document.getElementById('app');
+const state = {
+  venue: null, date: null, partySize: 2, zoneId: null,
+  slot: null, step: 0, booking: null,
+};
+
+function render(...nodes) { app.replaceChildren(...nodes); }
+
+function steps(active) {
+  return el('div', { class: 'steps' }, [0, 1, 2, 3].map((i) =>
+    el('div', { class: `step ${i <= active ? 'is-done' : ''}` })));
+}
+
+async function boot() {
+  if (!slug) return renderMissingSlug();
+  const result = await get(`/api/public/${encodeURIComponent(slug)}`);
+  if (!result.ok) return renderNotFound();
+  state.venue = result.data;
+  state.date = todayIso(result.data.restaurant.timezone);
+  renderSearch();
+}
+
+function renderMissingSlug() {
+  render(el('div', { class: 'card', style: 'margin-top:2rem' }, [
+    el('div', { class: 'card__body center' }, [
+      el('h1', { text: 'Quel restaurant ?' }),
+      el('p', { class: 'muted', text: "Ajoutez l'identifiant du restaurant à l'adresse, par exemple /r/le-comptoir." }),
+    ]),
+  ]));
+}
+
+function renderNotFound() {
+  render(el('div', { class: 'card', style: 'margin-top:2rem' }, [
+    el('div', { class: 'card__body center' }, [
+      el('h1', { text: 'Restaurant introuvable' }),
+      el('p', { class: 'muted', text: "Vérifiez le lien qui vous a été communiqué." }),
+    ]),
+  ]));
+}
+
+/* --- Étape 1 : date, couverts, zone ---------------------------------- */
+function renderSearch() {
+  const { restaurant, zones, maxPartySize } = state.venue;
+
+  const partyButtons = el('div', { class: 'party' },
+    Array.from({ length: Math.min(12, maxPartySize) }, (_, i) => i + 1).map((n) =>
+      el('button', {
+        class: 'slot', type: 'button',
+        'aria-pressed': String(n === state.partySize),
+        onclick: () => { state.partySize = n; state.slot = null; renderSearch(); loadSlots(); },
+      }, [String(n)])));
+
+  const zoneChoice = zones.length > 0 ? el('div', { class: 'field' }, [
+    el('label', { text: 'Préférence de place (facultatif)' }),
+    el('div', { class: 'stack', style: 'gap:.45rem' }, [
+      el('button', {
+        class: 'zone-card', type: 'button',
+        'aria-pressed': String(state.zoneId === null),
+        onclick: () => { state.zoneId = null; renderSearch(); loadSlots(); },
+      }, [
+        el('span', { class: 'zone-card__icon', text: '🎲' }),
+        el('span', {}, [el('div', { class: 'list__title', text: 'Peu importe' }),
+          el('div', { class: 'list__meta', text: 'Le restaurant choisit la meilleure table' })]),
+      ]),
+      ...zones.map((zone) => el('button', {
+        class: 'zone-card', type: 'button',
+        'aria-pressed': String(state.zoneId === zone.id),
+        onclick: () => { state.zoneId = zone.id; renderSearch(); loadSlots(); },
+      }, [
+        el('span', { class: 'zone-card__icon', text: zoneIcon(zone.kind) }),
+        el('span', {}, [
+          el('div', { class: 'list__title', text: zone.name }),
+          zone.description ? el('div', { class: 'list__meta', text: zone.description }) : null,
+        ]),
+      ])),
+    ]),
+  ]) : null;
+
+  render(
+    el('div', { class: 'hero' }, [
+      el('h1', { text: restaurant.name }),
+      el('p', { class: 'muted', text: [restaurant.city, 'Réservation en ligne'].filter(Boolean).join(' · ') }),
+    ]),
+    steps(state.slot ? 1 : 0),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__body' }, [
+        el('div', { class: 'grid grid--2' }, [
+          el('div', { class: 'field' }, [
+            el('label', { for: 'date', text: 'Date' }),
+            el('input', {
+              type: 'date', id: 'date', value: state.date,
+              min: todayIso(restaurant.timezone),
+              max: addDays(todayIso(restaurant.timezone), 180),
+              onchange: (e) => { state.date = e.target.value; state.slot = null; renderSearch(); loadSlots(); },
+            }),
+          ]),
+          el('div', { class: 'field' }, [
+            el('label', { text: 'Nombre de personnes' }),
+            partyButtons,
+          ]),
+        ]),
+        zoneChoice,
+        el('hr', { style: 'border:none;border-top:1px solid var(--border);margin:1rem 0' }),
+        el('div', { class: 'field', style: 'margin:0' }, [
+          el('label', { text: `Horaires disponibles — ${formatDate(`${state.date}T12:00:00Z`, restaurant.timezone)}` }),
+          el('div', { id: 'slots' }, [el('div', { class: 'spinner', style: 'margin:1rem auto' })]),
+        ]),
+      ]),
+    ]),
+  );
+  loadSlots();
+}
+
+function zoneIcon(kind) {
+  return { terrace: '🌳', bar: '🍸', private_room: '🚪', vip: '⭐', lounge: '🛋️', counter: '🪑' }[kind] ?? '🍽️';
+}
+
+let slotRequest = 0;
+async function loadSlots() {
+  const host = document.getElementById('slots');
+  if (!host) return;
+  const ticket = ++slotRequest;
+
+  const params = new URLSearchParams({ date: state.date, partySize: String(state.partySize) });
+  if (state.zoneId) params.set('zoneId', state.zoneId);
+  const result = await get(`/api/public/${encodeURIComponent(slug)}/availability?${params}`);
+
+  // Une reponse arrivee apres un changement de critere est ignoree :
+  // l'ecran ne doit jamais afficher les creneaux d'une autre recherche.
+  if (ticket !== slotRequest) return;
+  if (!result.ok) { host.replaceChildren(el('p', { class: 'muted', text: errorMessage(result) })); return; }
+
+  const slots = result.data.slots;
+  const open = slots.filter((s) => s.available);
+  if (open.length === 0) {
+    host.replaceChildren(el('div', { class: 'empty' }, [
+      el('p', { text: 'Aucune table disponible ce jour-là pour cette taille de groupe.' }),
+      el('p', { class: 'small', text: 'Essayez une autre date ou un autre nombre de personnes.' }),
+    ]));
+    return;
+  }
+
+  const byService = new Map();
+  for (const slot of slots) {
+    if (!byService.has(slot.servicePeriodName)) byService.set(slot.servicePeriodName, []);
+    byService.get(slot.servicePeriodName).push(slot);
+  }
+
+  host.replaceChildren(...[...byService].map(([name, list]) => el('div', { style: 'margin-bottom:1rem' }, [
+    el('div', { class: 'tiny muted', style: 'text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem', text: name }),
+    el('div', { class: 'slots' }, list.map((slot) => el('button', {
+      class: 'slot', type: 'button',
+      disabled: !slot.available,
+      'aria-pressed': String(state.slot?.time === slot.time),
+      title: slot.available
+        ? (slot.requiresCombination ? 'Nécessite plusieurs tables réunies' : `${slot.tablesLeft} table(s) disponible(s)`)
+        : (slot.reason ?? 'Complet'),
+      onclick: () => { state.slot = slot; renderDetails(); },
+    }, [formatTime(slot.time, state.venue.restaurant.timezone)]))),
+  ])));
+}
+
+/* --- Étape 2 : coordonnées ------------------------------------------- */
+function renderDetails() {
+  const { restaurant } = state.venue;
+  const zone = state.venue.zones.find((z) => z.id === state.zoneId);
+
+  render(
+    steps(2),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__head' }, [
+        el('button', { class: 'btn btn--sm', type: 'button', onclick: renderSearch }, ['← Modifier']),
+        el('h2', { text: 'Vos coordonnées' }),
+      ]),
+      el('div', { class: 'card__body' }, [
+        el('div', { class: 'summary', style: 'margin-bottom:1.1rem' }, [
+          el('dl', {}, [
+            el('dt', { text: 'Restaurant' }), el('dd', { text: restaurant.name }),
+            el('dt', { text: 'Date' }), el('dd', { text: formatDate(state.slot.time, restaurant.timezone) }),
+            el('dt', { text: 'Heure' }), el('dd', { text: formatTime(state.slot.time, restaurant.timezone) }),
+            el('dt', { text: 'Couverts' }), el('dd', { text: `${state.partySize} personne${state.partySize > 1 ? 's' : ''}` }),
+            ...(zone ? [el('dt', { text: 'Place' }), el('dd', { text: zone.name })] : []),
+          ]),
+        ]),
+        el('form', { id: 'booking-form', onsubmit: submitBooking }, [
+          el('div', { class: 'grid grid--2' }, [
+            el('div', { class: 'field' }, [
+              el('label', { for: 'firstName', text: 'Prénom *' }),
+              el('input', { id: 'firstName', name: 'firstName', required: true, autocomplete: 'given-name' }),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { for: 'lastName', text: 'Nom *' }),
+              el('input', { id: 'lastName', name: 'lastName', required: true, autocomplete: 'family-name' }),
+            ]),
+          ]),
+          el('div', { class: 'grid grid--2' }, [
+            el('div', { class: 'field' }, [
+              el('label', { for: 'phone', text: 'Téléphone *' }),
+              el('input', { id: 'phone', name: 'phone', type: 'tel', required: true, autocomplete: 'tel', placeholder: '+33 6 12 34 56 78' }),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { for: 'email', text: 'Email' }),
+              el('input', { id: 'email', name: 'email', type: 'email', autocomplete: 'email' }),
+            ]),
+          ]),
+          el('div', { class: 'field' }, [
+            el('label', { for: 'occasion', text: 'Occasion (facultatif)' }),
+            el('select', { id: 'occasion', name: 'occasion' }, [
+              el('option', { value: '', text: '—' }),
+              ...['Anniversaire', 'Dîner d\'affaires', 'Romantique', 'Famille', 'Célébration']
+                .map((o) => el('option', { value: o, text: o })),
+            ]),
+          ]),
+          el('div', { class: 'field' }, [
+            el('label', { for: 'notes', text: 'Allergies, régime, demande particulière' }),
+            el('textarea', { id: 'notes', name: 'notes', placeholder: 'Une allergie ? Précisez-la ici, elle sera transmise en salle.' }),
+          ]),
+          el('div', { class: 'field row', style: 'gap:.5rem;align-items:flex-start' }, [
+            el('input', { type: 'checkbox', id: 'marketing', name: 'marketing', style: 'width:auto;margin-top:.25rem' }),
+            el('label', { for: 'marketing', style: 'margin:0;font-weight:400', class: 'small',
+              text: 'J\'accepte de recevoir les actualités et offres du restaurant.' }),
+          ]),
+          el('button', { class: 'btn btn--primary btn--block', type: 'submit', id: 'submit-btn' },
+            ['Confirmer la réservation']),
+          el('p', { class: 'tiny muted center', style: 'margin-top:.75rem',
+            text: 'Vos données servent à gérer votre réservation. Vous pouvez demander leur suppression à tout moment.' }),
+        ]),
+      ]),
+    ]),
+  );
+}
+
+async function submitBooking(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const button = document.getElementById('submit-btn');
+  button.disabled = true;
+  button.textContent = 'Envoi…';
+
+  const result = await post(`/api/public/${encodeURIComponent(slug)}/reservations`, {
+    startsAt: state.slot.time,
+    partySize: state.partySize,
+    zoneId: state.zoneId,
+    occasion: form.get('occasion') || null,
+    notes: form.get('notes') || null,
+    guest: {
+      firstName: form.get('firstName'),
+      lastName: form.get('lastName'),
+      phone: form.get('phone') || null,
+      email: form.get('email') || null,
+      marketingConsent: form.get('marketing') === 'on',
+    },
+  });
+
+  button.disabled = false;
+  button.textContent = 'Confirmer la réservation';
+
+  if (!result.ok) {
+    // 409 : quelqu'un a pris la table pendant la saisie. On le dit
+    // clairement et on renvoie vers les creneaux a jour.
+    if (result.status === 409) {
+      toast("Ce créneau vient d'être réservé. Voici les horaires à jour.", 'danger');
+      state.slot = null;
+      return renderSearch();
+    }
+    return toast(errorMessage(result), 'danger');
+  }
+
+  state.booking = result.data;
+  renderConfirmation();
+}
+
+/* --- Étape 3 : confirmation ------------------------------------------ */
+function renderConfirmation() {
+  const { restaurant } = state.venue;
+  const booking = state.booking;
+  const needsPayment = booking.status === 'pending_payment' && booking.deposit;
+
+  render(
+    steps(3),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__body center' }, [
+        el('div', { style: 'font-size:2.6rem;line-height:1', text: needsPayment ? '⏳' : '✓' }),
+        el('h1', { style: 'margin:.6rem 0',
+          text: needsPayment ? 'Table maintenue' : 'Réservation confirmée' }),
+        el('p', { class: 'muted',
+          text: needsPayment
+            ? 'Votre table est gardée le temps de régler l\'acompte.'
+            : `À très bientôt chez ${restaurant.name}.` }),
+        el('div', { style: 'margin:1.2rem 0' }, [el('span', { class: 'confirm-ref', text: booking.reference })]),
+        el('p', { class: 'small muted', text: 'Conservez cette référence pour modifier ou annuler.' }),
+
+        el('div', { class: 'summary', style: 'margin:1.2rem 0;text-align:left' }, [
+          el('dl', {}, [
+            el('dt', { text: 'Date' }), el('dd', { text: formatDate(booking.startsAt, restaurant.timezone) }),
+            el('dt', { text: 'Heure' }), el('dd', { text: formatTime(booking.startsAt, restaurant.timezone) }),
+            el('dt', { text: 'Couverts' }), el('dd', { text: String(booking.partySize) }),
+          ]),
+        ]),
+
+        ...(needsPayment ? [
+          el('div', { class: 'deposit-notice', style: 'text-align:left' }, [
+            el('strong', { text: depositTitle(booking.deposit) }),
+            el('p', { class: 'small', style: 'margin:.35rem 0 0', text: depositExplanation(booking.deposit) }),
+          ]),
+          el('button', {
+            class: 'btn btn--primary btn--block', type: 'button', id: 'pay-btn',
+            onclick: payDeposit,
+          }, [`Régler ${formatMoney(booking.deposit.amountCents, 'EUR')}`]),
+        ] : []),
+
+        el('button', {
+          class: 'btn btn--danger btn--block', type: 'button', style: 'margin-top:.6rem',
+          onclick: cancelBooking,
+        }, ['Annuler la réservation']),
+      ]),
+    ]),
+  );
+}
+
+function depositTitle(deposit) {
+  return {
+    deposit: `Acompte de ${formatMoney(deposit.amountCents)}`,
+    preauthorization: `Empreinte bancaire de ${formatMoney(deposit.amountCents)}`,
+    full_payment: `Règlement de ${formatMoney(deposit.amountCents)}`,
+  }[deposit.mechanism] ?? 'Garantie demandée';
+}
+
+function depositExplanation(deposit) {
+  const free = `Annulation gratuite jusqu'à ${deposit.freeCancellationHours} h avant.`;
+  return {
+    deposit: `Cet acompte sera déduit de votre addition. ${free}`,
+    preauthorization: `Aucun montant n'est débité : il s'agit d'une empreinte, prélevée uniquement en cas d'absence. ${free}`,
+    full_payment: `Le règlement intégral est demandé pour cette réservation. ${free}`,
+  }[deposit.mechanism] ?? free;
+}
+
+async function payDeposit() {
+  const button = document.getElementById('pay-btn');
+  button.disabled = true;
+  button.textContent = 'Traitement…';
+  // Le prestataire de paiement s'intercale ici : ORSYNE n'encaisse pas
+  // lui-meme, il enregistre le resultat et confirme la table.
+  const result = await post(
+    `/api/public/${encodeURIComponent(slug)}/reservations/${state.booking.reference}/confirm-payment`,
+    { provider: 'demo' });
+  if (!result.ok) {
+    button.disabled = false;
+    button.textContent = 'Réessayer';
+    return toast(errorMessage(result), 'danger');
+  }
+  state.booking = { ...state.booking, status: 'confirmed' };
+  toast('Paiement enregistré, réservation confirmée.', 'ok');
+  renderConfirmation();
+}
+
+async function cancelBooking() {
+  if (!confirm('Confirmer l\'annulation de votre réservation ?')) return;
+  const result = await post(
+    `/api/public/${encodeURIComponent(slug)}/reservations/${state.booking.reference}/cancel`);
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+  render(el('div', { class: 'card', style: 'margin-top:2rem' }, [
+    el('div', { class: 'card__body center' }, [
+      el('h1', { text: 'Réservation annulée' }),
+      el('p', { class: 'muted', text: 'Votre table a été libérée. Au plaisir de vous accueillir une prochaine fois.' }),
+      el('button', { class: 'btn', type: 'button', onclick: () => location.reload() }, ['Réserver à nouveau']),
+    ]),
+  ]));
+}
+
+/* --- Retrouver une réservation existante ------------------------------ */
+document.getElementById('lookup-link').addEventListener('click', (event) => {
+  event.preventDefault();
+  render(el('div', { class: 'card', style: 'margin-top:1.5rem' }, [
+    el('div', { class: 'card__head' }, [el('h2', { text: 'Retrouver ma réservation' })]),
+    el('div', { class: 'card__body' }, [
+      el('form', {
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const reference = new FormData(e.target).get('reference').trim().toUpperCase();
+          const result = await get(
+            `/api/public/${encodeURIComponent(slug)}/reservations/${encodeURIComponent(reference)}`);
+          if (!result.ok) return toast('Référence introuvable.', 'danger');
+          state.booking = {
+            reference, status: result.data.status,
+            startsAt: result.data.starts_at, partySize: result.data.party_size, deposit: null,
+          };
+          if (!state.venue) state.venue = { restaurant: { name: result.data.restaurant_name, timezone: result.data.timezone } };
+          renderConfirmation();
+        },
+      }, [
+        el('div', { class: 'field' }, [
+          el('label', { for: 'reference', text: 'Référence (ex. A4T-9KM)' }),
+          el('input', { id: 'reference', name: 'reference', required: true, class: 'mono', placeholder: 'XXX-XXX' }),
+        ]),
+        el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Rechercher']),
+      ]),
+    ]),
+  ]));
+});
+
+boot();
+</script>
+</body>
+</html>

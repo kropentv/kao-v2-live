@@ -10,7 +10,9 @@
   "scripts": {
     "migrate": "node src/db/migrate.js",
     "seed": "node src/db/seed.js",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "start": "node src/api/server.js",
+    "dev": "node --watch src/api/server.js"
   },
   "dependencies": {
     "pg": "^8.11.3"

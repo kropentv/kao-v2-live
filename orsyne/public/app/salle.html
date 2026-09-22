@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1220">
+<title>ORSYNE — Salle</title>
+<link rel="manifest" href="/app/salle.webmanifest">
+<link rel="stylesheet" href="/assets/orsyne.css">
+<style>
+  /* Interface de salle : gros boutons, peu de texte, une seule colonne.
+     Le serveur est debout, en mouvement, souvent à une main. */
+  body { background: var(--surface-2); padding-bottom: env(safe-area-inset-bottom); }
+  main { padding: .9rem 0 5rem; }
+  .wrap { max-width: 720px; }
+
+  .card--table { margin-bottom: .7rem; }
+  .card--table.is-now { border-color: var(--accent); border-width: 2px; }
+  .card--critical { border-color: var(--danger); border-width: 2px; }
+
+  .headline { display: flex; align-items: baseline; gap: .6rem; }
+  .headline__time { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .headline__table {
+    font-size: 1.1rem; font-weight: 700; padding: .1rem .5rem;
+    background: var(--ink); color: #fff; border-radius: var(--radius-sm);
+  }
+  .actions { display: flex; gap: .45rem; margin-top: .7rem; }
+  .actions .btn { flex: 1; padding: .7rem; font-size: .95rem; }
+
+  .notif {
+    border-left: 4px solid var(--accent); background: var(--surface);
+    border-radius: var(--radius-sm); padding: .8rem .9rem; margin-bottom: .6rem;
+    box-shadow: var(--shadow);
+  }
+  .notif--critical { border-left-color: var(--danger); }
+
+  .tabs { display: flex; gap: .3rem; margin-bottom: .9rem; }
+  .tabs button {
+    flex: 1; padding: .55rem; font: inherit; font-weight: 640; font-size: .92rem;
+    background: var(--surface); color: var(--text-soft);
+    border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .tabs button[aria-current='page'] {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  .badge {
+    display: inline-block; min-width: 1.25rem; padding: 0 .35rem;
+    background: var(--danger); color: #fff; border-radius: 999px;
+    font-size: .72rem; font-weight: 700; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <div class="brand"><span class="brand__name">Orsyne</span></div>
+    <div class="topbar__spacer"></div>
+    <span class="live-dot" id="live" title="Temps réel"></span>
+    <span class="small muted" id="who"></span>
+    <button class="btn btn--sm" id="logout" hidden>Quitter</button>
+  </div>
+</header>
+
+<main class="wrap" id="app">
+  <div class="center" style="padding:3rem"><div class="spinner" style="margin:auto"></div></div>
+</main>
+
+<script type="module">
+import { get, post, el, toast, errorMessage, formatTime, connectStream, statusTag }
+  from '/assets/orsyne.js';
+
+const app = document.getElementById('app');
+const state = { me: null, restaurant: null, tab: 'tables', service: null, notifications: [], stream: null };
+
+async function boot() {
+  const me = await get('/api/me');
+  if (!me.ok) return renderLogin();
+  state.me = me.data;
+  if (me.data.restaurants.length === 0) {
+    return app.replaceChildren(el('div', { class: 'empty', text: 'Aucun établissement accessible.' }));
+  }
+  state.restaurant = me.data.restaurants[0];
+  document.getElementById('who').textContent = me.data.user.display_name ?? me.data.user.full_name;
+  document.getElementById('logout').hidden = false;
+  document.getElementById('logout').onclick = async () => {
+    await post('/api/auth/logout'); state.stream?.close(); location.reload();
+  };
+  connect();
+  await refresh();
+}
+
+function renderLogin(message) {
+  app.replaceChildren(el('div', { class: 'card', style: 'margin-top:2rem' }, [
+    el('div', { class: 'card__body' }, [
+      el('h1', { text: 'Mon service' }),
+      el('p', { class: 'muted small', text: 'Connectez-vous pour voir vos tables.' }),
+      message ? el('p', { class: 'tag tag--danger', text: message }) : null,
+      el('form', {
+        onsubmit: async (event) => {
+          event.preventDefault();
+          const form = new FormData(event.target);
+          const result = await post('/api/auth/login', {
+            email: form.get('email'), password: form.get('password'),
+          });
+          if (!result.ok) return renderLogin(errorMessage(result, 'Identifiants incorrects.'));
+          boot();
+        },
+      }, [
+        el('div', { class: 'field' }, [
+          el('label', { text: 'Email' }),
+          el('input', { name: 'email', type: 'email', required: true, autocomplete: 'username' }),
+        ]),
+        el('div', { class: 'field' }, [
+          el('label', { text: 'Mot de passe' }),
+          el('input', { name: 'password', type: 'password', required: true, autocomplete: 'current-password' }),
+        ]),
+        el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Entrer en service']),
+      ]),
+    ]),
+  ]));
+}
+
+function connect() {
+  const dot = document.getElementById('live');
+  state.stream = connectStream(state.restaurant.id, {
+    onStatus: (up) => dot.classList.toggle('live-dot--on', up),
+    on: {
+      'notification.created': (event) => {
+        // Le hub filtre deja par destinataire ; on verifie tout de meme,
+        // une interface de salle ne doit jamais afficher la table d'un autre.
+        if (event.recipientUserId && event.recipientUserId !== state.me.user.id) return;
+        toast(`${event.title} — nouvelle information`, event.hasCritical ? 'danger' : '');
+        refresh();
+      },
+      'reservation.confirmed': refresh,
+      'reservation.cancelled': refresh,
+      'reservation.seated': refresh,
+      'reservation.completed': refresh,
+      'reservation.server_assigned': refresh,
+      'manager.broadcast': (event) => toast(`${event.from} : ${event.message}`),
+    },
+  });
+}
+
+async function refresh() {
+  const [service, notifications] = await Promise.all([
+    get(`/api/restaurants/${state.restaurant.id}/service`),
+    get('/api/notifications?unread=true'),
+  ]);
+  if (!service.ok) return app.replaceChildren(el('div', { class: 'empty', text: errorMessage(service) }));
+  state.service = service.data;
+  state.notifications = notifications.ok ? notifications.data : [];
+  render();
+}
+
+function render() {
+  const { reservations, restaurant } = state.service;
+  const tz = restaurant.timezone;
+  const now = Date.now();
+
+  const active = reservations.filter((r) => !['completed', 'cancelled', 'no_show'].includes(r.status));
+  const unread = state.notifications.length;
+
+  app.replaceChildren(
+    el('div', { class: 'tabs' }, [
+      el('button', {
+        'aria-current': state.tab === 'tables' ? 'page' : null,
+        onclick: () => { state.tab = 'tables'; render(); },
+      }, [`Mes tables (${active.length})`]),
+      el('button', {
+        'aria-current': state.tab === 'infos' ? 'page' : null,
+        onclick: () => { state.tab = 'infos'; render(); },
+      }, ['Infos ', unread > 0 ? el('span', { class: 'badge', text: String(unread) }) : '']),
+    ]),
+    state.tab === 'tables' ? renderTables(active, tz, now) : renderNotifications(tz),
+  );
+}
+
+function renderTables(reservations, tz, now) {
+  if (reservations.length === 0) {
+    return el('div', { class: 'empty' }, [
+      el('p', { style: 'font-size:2rem;margin:0', text: '🍽️' }),
+      el('p', { text: 'Aucune table pour le moment.' }),
+      el('p', { class: 'small', text: 'Les nouvelles tables arrivent ici automatiquement.' }),
+    ]);
+  }
+
+  return el('div', {}, reservations.map((r) => {
+    const startsAt = new Date(r.starts_at).getTime();
+    const isNow = Math.abs(startsAt - now) < 30 * 60_000;
+
+    return el('div', { class: `card card--table ${isNow ? 'is-now' : ''} ${r.has_critical_preference ? 'card--critical' : ''}` }, [
+      el('div', { class: 'card__body' }, [
+        el('div', { class: 'headline' }, [
+          el('span', { class: 'headline__time', text: formatTime(r.starts_at, tz) }),
+          el('span', { class: 'headline__table', text: r.table_codes.join(' + ') || 'à placer' }),
+          el('span', { class: 'muted', text: `${r.party_size} pers.` }),
+          el('span', { style: 'flex:1' }),
+          statusTag(r.status),
+        ]),
+
+        el('div', { style: 'margin-top:.5rem' }, [
+          el('strong', { text: r.guestName ?? 'Client sans nom' }),
+          Number(r.guest_visits) >= 3
+            ? el('span', { class: 'tag tag--amber', style: 'margin-left:.4rem',
+                text: `${Number(r.guest_visits) + 1}e visite` })
+            : null,
+          r.vip ? el('span', { class: 'tag tag--amber', style: 'margin-left:.4rem', text: '⭐ VIP' }) : null,
+          r.isLate ? el('span', { class: 'tag tag--danger', style: 'margin-left:.4rem',
+            text: `${r.minutesLate} min de retard` }) : null,
+        ]),
+
+        r.occasion ? el('div', { class: 'small muted', text: `🎉 ${r.occasion}` }) : null,
+        r.guest_notes ? el('div', { class: 'small', style: 'margin-top:.3rem', text: `“${r.guest_notes}”` }) : null,
+        r.has_critical_preference
+          ? el('div', { class: 'tag tag--danger', style: 'margin-top:.4rem', text: '⚠️ Allergie déclarée — voir la fiche' })
+          : null,
+
+        el('div', { class: 'actions' }, [
+          r.guest_id ? el('button', { class: 'btn', onclick: () => showBrief(r) }, ['Fiche client']) : null,
+          r.status === 'confirmed'
+            ? el('button', { class: 'btn btn--primary', onclick: () => act(r.id, 'seat', 'Client installé') }, ['Installer'])
+            : null,
+          r.status === 'seated'
+            ? el('button', { class: 'btn btn--primary', onclick: () => act(r.id, 'complete', 'Table libérée') }, ['Terminer'])
+            : null,
+        ].filter(Boolean)),
+      ]),
+    ]);
+  }));
+}
+
+function renderNotifications(tz) {
+  if (state.notifications.length === 0) {
+    return el('div', { class: 'empty' }, [
+      el('p', { text: 'Rien de nouveau.' }),
+      el('p', { class: 'small', text: 'Les informations utiles apparaissent ici au moment où elles comptent.' }),
+    ]);
+  }
+  return el('div', {}, [
+    el('button', {
+      class: 'btn btn--sm', style: 'margin-bottom:.6rem',
+      onclick: async () => { await post('/api/notifications/read-all'); refresh(); },
+    }, ['Tout marquer comme lu']),
+    ...state.notifications.map((n) => el('div', {
+      class: `notif ${n.priority <= 10 ? 'notif--critical' : ''}`,
+    }, [
+      el('div', { class: 'row row--between' }, [
+        el('strong', { text: n.title }),
+        el('span', { class: 'tiny muted', text: formatTime(n.created_at, tz) }),
+      ]),
+      n.body ? el('div', { class: 'small', style: 'white-space:pre-line;margin-top:.3rem', text: n.body }) : null,
+      n.payload?.suggestion
+        ? el('div', { class: 'brief__suggestion' }, [
+            el('strong', { text: '💡 Suggestion — ' }),
+            n.payload.suggestion.text,
+          ])
+        : null,
+      el('button', {
+        class: 'btn btn--sm', style: 'margin-top:.5rem',
+        onclick: async () => { await post(`/api/notifications/${n.id}/read`); refresh(); },
+      }, ['Vu']),
+    ])),
+  ]);
+}
+
+/** Fiche client : uniquement la note, jamais le CRM complet. */
+async function showBrief(reservation) {
+  const result = await get(
+    `/api/guests/${reservation.guest_id}/brief?restaurantId=${state.restaurant.id}`);
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+  const brief = result.data;
+
+  const overlay = el('div', {
+    class: 'drawer', style: 'align-items:flex-end;justify-content:center',
+    onclick: (event) => { if (event.currentTarget === event.target) overlay.remove(); },
+  }, [
+    el('div', {
+      class: 'card', style: 'width:min(560px,100%);margin:0 0 0;border-radius:var(--radius-lg) var(--radius-lg) 0 0',
+    }, [
+      el('div', { class: 'card__head' }, [
+        el('div', {}, [
+          el('h2', { text: brief.title }),
+          el('div', { class: 'small muted', text: brief.subtitle }),
+        ]),
+        el('span', { style: 'flex:1' }),
+        el('button', { class: 'btn btn--sm', onclick: () => overlay.remove() }, ['Fermer']),
+      ]),
+      el('div', { class: 'card__body' }, [
+        el('div', { class: 'brief' }, brief.lines.map((line) =>
+          el('div', { class: `brief__line ${line.kind === 'critical' ? 'brief__line--critical' : ''}` }, [
+            el('span', { text: line.icon }),
+            el('span', { text: line.text }),
+          ]))),
+        brief.suggestion ? el('div', { class: 'brief__suggestion' }, [
+          el('strong', { text: '💡 Suggestion — ' }),
+          brief.suggestion.text,
+          el('div', { class: 'tiny muted', style: 'margin-top:.3rem',
+            text: `Hypothèse de l'IA (confiance ${Math.round(brief.suggestion.confidence * 100)} %), pas une certitude.` }),
+        ]) : null,
+      ]),
+    ]),
+  ]);
+  document.body.append(overlay);
+}
+
+async function act(reservationId, action, message) {
+  const result = await post(`/api/reservations/${reservationId}/${action}`);
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+  toast(message, 'ok');
+  refresh();
+}
+
+boot();
+</script>
+</body>
+</html>
