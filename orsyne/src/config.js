@@ -20,6 +20,36 @@ const int = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+
+/**
+ * Adresse publique. Railway et Render l'exposent dans l'environnement ;
+ * un reglage explicite gagne toujours.
+ */
+export function resolvePublicUrl(e) {
+  const explicit = e.ORSYNE_PUBLIC_URL
+    ?? (e.RAILWAY_PUBLIC_DOMAIN ? `https://${e.RAILWAY_PUBLIC_DOMAIN}` : null)
+    ?? e.RENDER_EXTERNAL_URL
+    ?? `http://localhost:${int(e.PORT, 3000)}`;
+  return explicit.replace(/\/+$/, '');
+}
+
+/**
+ * Connexion applicative deduite de la connexion admin : meme serveur,
+ * meme base, role orsyne_app. Evite de recopier a la main hote, port et
+ * nom de base chez un hebergeur — une source d'erreur de moins.
+ */
+export function deriveAppUrl(adminUrl, appPassword) {
+  if (!adminUrl || !appPassword) return null;
+  try {
+    const url = new URL(adminUrl);
+    url.username = 'orsyne_app';
+    url.password = appPassword;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 const env = process.env;
 
 export const config = {
@@ -28,15 +58,23 @@ export const config = {
 
   port: int(env.PORT, 3000),
   // Adresse publique du service : sert aux liens dans les emails et SMS,
-  // et aux retours du prestataire de paiement.
-  publicUrl: (env.ORSYNE_PUBLIC_URL ?? `http://localhost:${int(env.PORT, 3000)}`).replace(/\/+$/, ''),
+  // et aux retours du prestataire de paiement. Les hebergeurs courants
+  // l'annoncent eux-memes : un reglage de moins a oublier.
+  publicUrl: resolvePublicUrl(env),
 
-  databaseUrl: env.ORSYNE_DATABASE_URL
-    ?? env.DATABASE_URL
-    ?? 'postgres://orsyne_app@localhost:5432/orsyne',
+  // Deux connexions, jamais confondues :
+  //   - admin : proprietaire du schema, migrations uniquement ;
+  //   - app   : role orsyne_app, NOBYPASSRLS, tout le reste.
+  // `DATABASE_URL`, injecte par la plupart des hebergeurs, pointe sur le
+  // proprietaire : il ne sert donc QUE de connexion admin. S'en servir
+  // pour l'application contournerait l'isolation entre restaurants.
   adminDatabaseUrl: env.ORSYNE_ADMIN_DATABASE_URL
+    ?? env.DATABASE_URL
     ?? env.ORSYNE_DATABASE_URL
     ?? 'postgres://orsyne@localhost:5432/orsyne',
+  databaseUrl: env.ORSYNE_DATABASE_URL
+    ?? deriveAppUrl(env.ORSYNE_ADMIN_DATABASE_URL ?? env.DATABASE_URL, env.ORSYNE_APP_DB_PASSWORD)
+    ?? 'postgres://orsyne_app@localhost:5432/orsyne',
   pgPoolMax: int(env.ORSYNE_PG_POOL_MAX, 10),
   // Migrer au demarrage convient a un conteneur unique ; sur plusieurs
   // instances, le verrou consultatif des migrations fait que seule la

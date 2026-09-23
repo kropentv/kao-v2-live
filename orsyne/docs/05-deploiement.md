@@ -1,8 +1,49 @@
 # ORSYNE — Mise en production
 
+## Essayer en ligne, avec un vrai lien (Railway)
+
+Environ 10 minutes, sans rien installer. Le résultat : une adresse en
+`https://…up.railway.app`, utilisable depuis un téléphone, avec le
+restaurant de démonstration et les paiements en mode démonstration.
+
+1. Aller sur **railway.com** et se connecter avec GitHub.
+2. **New Project → Deploy from GitHub repo** → choisir `kao-v2-live`.
+3. Dans le service créé, onglet **Settings → Source** :
+   - *Root Directory* : `/orsyne`
+   - *Branch* : `claude/restaurant-os-spec-vg7ot9`
+
+   Railway trouve le `Dockerfile` tout seul.
+4. Dans le projet : **+ New → Database → Add PostgreSQL**.
+5. Dans le service ORSYNE, onglet **Variables**, ajouter :
+
+   | Variable | Valeur |
+   |---|---|
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` |
+   | `ORSYNE_APP_DB_PASSWORD` | un mot de passe long, au choix |
+   | `ORSYNE_SEED_DEMO` | `true` |
+   | `ORSYNE_TRUST_PROXY` | `true` |
+
+6. **Settings → Networking → Generate Domain.**
+7. Ouvrir `https://<le-domaine>/r/comptoir-demo`.
+
+`DATABASE_URL` sert uniquement aux migrations : l'application en déduit
+elle-même la connexion avec le rôle isolé `orsyne_app`, et **refuse de
+démarrer** si on lui donne un compte capable de contourner l'isolation
+entre restaurants. L'adresse publique est lue dans
+`RAILWAY_PUBLIC_DOMAIN`, fournie par Railway.
+
+> Ce parcours a été rejoué hors de Railway — installation propre, compte
+> non-root, base neuve protégée par mot de passe, uniquement ces
+> variables — mais pas sur Railway même. Si une étape diffère, les
+> journaux du service (`Deployments → View logs`) disent pourquoi.
+
 ## En local, en une commande
 
+Prérequis : Docker Desktop et git.
+
 ```bash
+git clone -b claude/restaurant-os-spec-vg7ot9 https://github.com/kropentv/kao-v2-live.git
+cd kao-v2-live/orsyne
 docker compose up
 ```
 

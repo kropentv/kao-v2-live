@@ -69,3 +69,32 @@ export async function withTenant(ctx, fn) {
     client.release();
   }
 }
+
+/**
+ * Le compte applicatif peut-il contourner l'isolation entre restaurants ?
+ *
+ * Un superutilisateur, ou un role BYPASSRLS, ignore toutes les politiques
+ * de securite ligne a ligne : chaque restaurant verrait les donnees des
+ * autres, sans la moindre erreur. C'est exactement ce qui arrive quand on
+ * branche l'application sur le `DATABASE_URL` d'un hebergeur. On le
+ * verifie donc au demarrage, plutot que de le decouvrir en production.
+ *
+ * @returns {Promise<string|null>} le probleme, ou null si le role est sain
+ */
+export async function isolationProblem(connectionString = config.databaseUrl) {
+  const client = new pg.Client({ connectionString });
+  await client.connect();
+  try {
+    const { rows: [role] } = await client.query(
+      `SELECT current_user AS name, rolsuper, rolbypassrls
+         FROM pg_roles WHERE rolname = current_user`);
+    if (role.rolsuper || role.rolbypassrls) {
+      return `le compte « ${role.name} » contourne l'isolation entre restaurants `
+        + `(${role.rolsuper ? 'superutilisateur' : 'BYPASSRLS'}). `
+        + "Utilisez le role orsyne_app (ORSYNE_DATABASE_URL, ou ORSYNE_APP_DB_PASSWORD).";
+    }
+    return null;
+  } finally {
+    await client.end();
+  }
+}

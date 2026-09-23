@@ -173,3 +173,24 @@ test('toute table metier porte tenant_id et une politique RLS', async () => {
     assert.ok(row?.has_tenant_id, `${name} doit porter tenant_id`);
   }
 });
+
+test('le demarrage detecte un compte applicatif qui contournerait l isolation', async () => {
+  const { isolationProblem } = await import('../src/db/pool.js');
+  // Le role applicatif des tests : sain.
+  assert.equal(await isolationProblem(process.env.ORSYNE_DATABASE_URL), null);
+  // Le proprietaire, superutilisateur : exactement ce que fournit un
+  // DATABASE_URL d'hebergeur. Le service doit refuser de s'en servir.
+  const problem = await isolationProblem(process.env.ORSYNE_ADMIN_DATABASE_URL);
+  assert.match(problem ?? '', /contourne l'isolation/);
+});
+
+test('DATABASE_URL d un hebergeur ne sert jamais de connexion applicative', async () => {
+  const { deriveAppUrl } = await import('../src/config.js');
+  const derived = new URL(deriveAppUrl('postgresql://postgres:secret@db.internal:5432/railway', 'mot de passe'));
+  assert.equal(derived.username, 'orsyne_app');
+  assert.equal(decodeURIComponent(derived.password), 'mot de passe');
+  assert.equal(derived.host, 'db.internal:5432');
+  assert.equal(derived.pathname, '/railway');
+  assert.equal(deriveAppUrl('postgresql://postgres:secret@db/x', undefined), null,
+    'sans mot de passe applicatif, rien n est deduit : pas de repli silencieux sur le proprietaire');
+});

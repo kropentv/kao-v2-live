@@ -18,7 +18,7 @@
 import pg from 'pg';
 import { config, assertProductionConfig } from './config.js';
 import { migrate } from './db/migrate.js';
-import { closePool } from './db/pool.js';
+import { closePool, isolationProblem } from './db/pool.js';
 import { startServer } from './api/server.js';
 
 const log = (...args) => console.log('[orsyne]', ...args);
@@ -48,6 +48,12 @@ async function main() {
   if (process.env.ORSYNE_APP_DB_PASSWORD) {
     await setAppRolePassword(process.env.ORSYNE_APP_DB_PASSWORD);
     log('mot de passe du role applicatif applique');
+  }
+
+  const problem = await isolationProblem();
+  if (problem) {
+    console.error(`[orsyne] demarrage refuse — ${problem}`);
+    process.exit(1);
   }
 
   if (process.env.ORSYNE_SEED_DEMO === 'true') {
