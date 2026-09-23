@@ -12,43 +12,39 @@ restaurant a déjà, pas à la place.
 
 ## Ce qui tourne aujourd'hui
 
-Un produit complet et fonctionnel, de la réservation client jusqu'à la
-table nettoyée.
+Un produit complet, du widget client jusqu'à l'encaissement.
 
 | | |
 |---|---|
-| **Widget client** | Disponibilité en direct, choix de zone, acompte, confirmation, annulation par référence |
-| **Dashboard manager** | Service temps réel, plan de salle, réservations, CRM, équipe, analytics |
-| **Application de salle** | Les tables du serveur, ses alertes, la fiche client — rien d'autre |
-| **API** | 45 routes, authentification par session, RBAC à 5 rôles |
-| **Temps réel** | SSE alimenté par un outbox transactionnel, reconnexion automatique |
+| **Widget client** | Disponibilité en direct, choix de zone, allergies structurées, acompte par paiement sécurisé, annulation, liste d'attente |
+| **Dashboard manager** | Service temps réel, plan de salle, réservations, liste d'attente, CRM, équipe, analytics |
+| **Application de salle** | Les tables du serveur, ses alertes allergies, la fiche client — rien d'autre |
+| **Paiements** | Stripe : acompte, empreinte bancaire, paiement intégral ; remboursement selon la politique ; capture sur no-show |
+| **Messages** | Confirmation, rappel de la veille, annulation, proposition de liste d'attente — email (Resend, Postmark) ou SMS (Twilio), dans la langue du client |
+| **Automatismes** | Rappels, libération des tables non payées, no-shows, expiration des propositions |
+| **API** | ~60 routes, sessions, RBAC à 5 rôles, limite de débit |
 
-**81 tests automatisés, tous verts.**
+**128 tests automatisés, tous verts.**
 
 ## Démarrer
 
-Prérequis : PostgreSQL 16+ (`pgcrypto`, `btree_gist`, `citext`) et Node.js 20+.
+```bash
+docker compose up
+```
+
+Puis `http://localhost:3000/r/comptoir-demo`. Tout est en mode
+démonstration : rien n'est débité, les messages s'affichent dans les
+journaux. Mise en production : [`docs/05-deploiement.md`](docs/05-deploiement.md).
+
+Sans Docker : PostgreSQL 16+ et Node.js 20+.
 
 ```bash
 npm install
-./scripts/dev-db.sh start        # base de développement locale, jetable
-
+./scripts/dev-db.sh start
 export ORSYNE_ADMIN_DATABASE_URL=postgres://orsyne@127.0.0.1:5433/orsyne_dev
 export ORSYNE_DATABASE_URL=postgres://orsyne_app@127.0.0.1:5433/orsyne_dev
-
-npm run migrate
-npm run seed                     # restaurant de démonstration complet
-npm start                        # http://localhost:3000
+ORSYNE_SEED_DEMO=true npm start
 ```
-
-`npm run seed` affiche les URL et les comptes de démonstration
-(propriétaire, manager, trois serveurs).
-
-| Interface | Adresse |
-|---|---|
-| Widget client | `/r/comptoir-demo` |
-| Dashboard | `/app/` |
-| Application de salle | `/app/salle.html` |
 
 ## Tests
 
@@ -66,11 +62,13 @@ la base et non via le code métier, qu'exactement une aboutit.
 ```
 db/migrations/     schéma versionné, une transaction par fichier
 src/domain/        moteur de réservation, disponibilité, attribution (pur)
-src/services/      auth, attribution serveur, briefing client, outbox
+src/services/      auth, attribution, briefing, paiements, messages,
+                   liste d'attente, tâches automatiques
+src/integrations/  Stripe, Resend, Postmark, Twilio — interchangeables
 src/api/           routeur HTTP, RBAC, routes
 src/realtime/      diffusion SSE
 public/            widget client, dashboard, application de salle
-test/              81 tests (node --test)
+test/              128 tests (node --test)
 docs/              marque, architecture, feuille de route
 ```
 

@@ -137,3 +137,15 @@ export function sessionCookie(token, expiresAt, { secure = false } = {}) {
 
 export const clearedSessionCookie =
   'orsyne_session=; Path=/; HttpOnly; SameSite=Lax; Expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+/**
+ * Pour les effets secondaires qui ne doivent pas faire echouer la requete
+ * (message au client, proposition de liste d'attente) : l'echec n'annule
+ * rien, mais il n'est JAMAIS silencieux. Un `.catch(() => {})` a deja
+ * cache ici un envoi de confirmations qui ne partait plus du tout.
+ */
+export function reportSideEffect(label) {
+  return (error) => {
+    console.error(`[orsyne] ${label} en echec :`, error?.message ?? error);
+  };
+}

@@ -501,3 +501,50 @@ test('une demande hors service est refusee pour le client, acceptee pour le pers
     }));
   assert.equal(staff.reservation.status, 'confirmed');
 });
+
+test('sous forte concurrence, aucun interblocage et aucune table laissee vide', async () => {
+  // Regression : sans verrou par table avant l'insertion, deux transactions
+  // visant la meme table s'attendaient mutuellement sur la contrainte
+  // d'exclusion (40P01). La victime perdait sa table, qui restait vide.
+  // Mesure avant correction : 27 interblocages sur 40 manches.
+  const rounds = 12;
+  for (let round = 0; round < rounds; round += 1) {
+    const fx = await createFixture({
+      tables: [
+        { code: 'A', seats_max: 4, combinable: true }, { code: 'B', seats_max: 4, combinable: true },
+        { code: 'C', seats_max: 4 }, { code: 'D', seats_max: 6 },
+      ],
+    });
+    await admin(async (db) => {
+      const { rows: [combo] } = await db.query(
+        `INSERT INTO table_combinations (tenant_id, restaurant_id, name, seats_min, seats_max)
+         VALUES ($1,$2,'A+B',5,8) RETURNING id`, [fx.tenantId, fx.restaurantId]);
+      for (const code of ['A', 'B']) {
+        await db.query(
+          `INSERT INTO table_combination_members (tenant_id, combination_id, table_id) VALUES ($1,$2,$3)`,
+          [fx.tenantId, combo.id, fx.tables[code].id]);
+      }
+    });
+
+    const startsAt = at(20);
+    const sizes = Array.from({ length: 16 }, (_, i) => [3, 7, 4, 2][i % 4]);
+    const outcomes = await Promise.allSettled(sizes.map((partySize) =>
+      withTenant({ tenantId: fx.tenantId }, (client) =>
+        createReservation(client, { restaurantId: fx.restaurantId, partySize, startsAt }))));
+
+    for (const outcome of outcomes.filter((o) => o.status === 'rejected')) {
+      assert.ok(outcome.reason instanceof NoAvailabilityError,
+        `manche ${round} : refus inattendu ${outcome.reason?.code ?? outcome.reason?.message}`);
+    }
+
+    const { rows: [{ used }] } = await admin((db) => db.query(
+      `SELECT count(DISTINCT table_id)::int AS used FROM table_occupancies
+        WHERE restaurant_id = $1 AND is_active`, [fx.restaurantId]));
+    assert.equal(used, 4, `manche ${round} : la demande depasse l'offre, toutes les tables doivent partir`);
+
+    const { rows: doubles } = await admin((db) => db.query(
+      `SELECT table_id FROM table_occupancies WHERE restaurant_id = $1 AND is_active
+        GROUP BY table_id HAVING count(*) > 1`, [fx.restaurantId]));
+    assert.deepEqual(doubles, [], `manche ${round} : table attribuee deux fois`);
+  }
+});

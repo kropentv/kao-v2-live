@@ -1,4 +1,4 @@
-import { Router, readJson, sendJson, badRequest, notFound, forbidden } from '../http.js';
+import { Router, readJson, sendJson, badRequest, notFound, forbidden, reportSideEffect } from '../http.js';
 import {
   createReservation, cancelReservation, markNoShow, seatReservation,
   completeReservation, moveReservation, confirmPayment, seatWalkIn,
@@ -8,6 +8,9 @@ import { assignServer, suggestServer, tryAssignServer } from '../../services/ass
 import { getServiceView } from '../../services/service-view.js';
 import { isServerOnly } from '../rbac.js';
 import { recordAllergies, upsertGuest } from '../../services/guest-profile.js';
+import { notifyReservation } from '../../services/messaging.js';
+import { releaseOrRefund } from '../../services/payments.js';
+import { onTableFreed } from '../../services/waitlist.js';
 
 function parseStartsAt(value) {
   const date = new Date(value);
@@ -102,6 +105,12 @@ export function reservationRoutes(router = new Router()) {
       });
       return { ...created, assignment };
     });
+    // Confirmation au client apres validation, jamais dedans.
+    if (body.notifyGuest !== false) {
+      await ctx.withTenant((client) => notifyReservation(client, {
+        reservationId: result.reservation.id, template: 'confirmed',
+      })).catch(reportSideEffect('confirmation au client'));
+    }
     sendJson(ctx.res, 201, result);
   }, { permission: 'reservations:write' });
 
@@ -133,13 +142,38 @@ export function reservationRoutes(router = new Router()) {
 
   router.post('/api/reservations/:reservationId/cancel', async (ctx) => {
     const body = await readJson(ctx.req).catch(() => ({}));
-    const freed = await ctx.withTenant((client) => cancelReservation(client, {
-      reservationId: ctx.params.reservationId,
-      reason: body.reason ?? null,
-      by: 'staff',
-      actorUserId: ctx.user.id,
-    }));
-    sendJson(ctx.res, 200, { ok: true, freedTableIds: freed });
+    const outcome = await ctx.withTenant(async (client) => {
+      const { rows: [before] } = await client.query(
+        'SELECT restaurant_id, starts_at, duration_minutes FROM reservations WHERE id = $1',
+        [ctx.params.reservationId]);
+      const freed = await cancelReservation(client, {
+        reservationId: ctx.params.reservationId,
+        reason: body.reason ?? null,
+        by: 'staff',
+        actorUserId: ctx.user.id,
+      });
+      // Quand c'est le restaurant qui annule, le client n'a rien a payer :
+      // l'empreinte est relachee et l'acompte rendu, quel que soit le delai.
+      const refunds = await releaseOrRefund(client, { reservationId: ctx.params.reservationId });
+      return { freed, refunds, before };
+    });
+
+    await ctx.withTenant(async (client) => {
+      if (body.notifyGuest !== false) {
+        await notifyReservation(client, { reservationId: ctx.params.reservationId, template: 'cancelled' });
+      }
+      if (outcome.before) {
+        await onTableFreed(client, {
+          restaurantId: outcome.before.restaurant_id,
+          startsAt: new Date(outcome.before.starts_at),
+          durationMinutes: outcome.before.duration_minutes,
+        });
+      }
+    }).catch(reportSideEffect("suites de l'annulation"));
+
+    sendJson(ctx.res, 200, {
+      ok: true, freedTableIds: outcome.freed, refunds: outcome.refunds.map((r) => r.outcome),
+    });
   }, { permission: 'reservations:write' });
 
   router.post('/api/reservations/:reservationId/move', async (ctx) => {

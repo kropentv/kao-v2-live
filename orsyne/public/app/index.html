@@ -45,6 +45,7 @@
       <button data-view="service" aria-current="page">Service</button>
       <button data-view="floor">Plan de salle</button>
       <button data-view="reservations">Réservations</button>
+      <button data-view="waitlist">Liste d'attente</button>
       <button data-view="guests">Clients</button>
       <button data-view="team">Équipe</button>
       <button data-view="analytics">Analytics</button>
@@ -176,6 +177,10 @@ function connect() {
       'reservation.server_assigned': refreshIfService,
       'table.status_changed': refreshIfService,
       'manager.broadcast': (e) => toast(`${e.from} : ${e.message}`),
+      'waitlist.offered': () => {
+        toast("Une table libérée a été proposée à la liste d'attente");
+        if (state.view === 'waitlist') loadWaitlist();
+      },
     },
   });
 }
@@ -190,9 +195,19 @@ async function openView(view) {
     [el('div', { class: 'spinner', style: 'margin:auto' })]));
   const views = {
     service: loadService, floor: loadFloor, reservations: loadReservations,
-    guests: loadGuests, team: loadTeam, analytics: loadAnalytics,
+    waitlist: loadWaitlist, guests: loadGuests, team: loadTeam, analytics: loadAnalytics,
   };
   await views[view]();
+}
+
+/**
+ * Affiche une vue seulement si elle est toujours celle demandee.
+ * Sans ce garde-fou, la reponse tardive d'un onglet quitte ecrase celui
+ * que l'utilisateur vient d'ouvrir — frequent sur le wifi d'une salle.
+ */
+function viewMount(view, ...nodes) {
+  if (state.view !== view) return;
+  mount(app, ...nodes);
 }
 
 /* --- Vue service ------------------------------------------------------ */
@@ -201,12 +216,12 @@ async function loadService() {
     get(`/api/restaurants/${state.restaurant.id}/service?date=${state.date}`),
     get(`/api/restaurants/${state.restaurant.id}/load`),
   ]);
-  if (!service.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(service) }));
+  if (!service.ok) return viewMount('service', el('div', { class: 'empty', text: errorMessage(service) }));
   state.service = service.data;
   const { stats, reservations, tables, alerts, restaurant } = service.data;
   const tz = restaurant.timezone;
 
-  mount(app, 
+  viewMount('service', 
     el('div', { class: 'row row--between row--wrap', style: 'margin-bottom:1rem' }, [
       el('div', {}, [
         el('h1', { text: 'Service en cours' }),
@@ -468,10 +483,10 @@ function openWalkIn() {
 /* --- Autres vues -------------------------------------------------------- */
 async function loadFloor() {
   const floor = await get(`/api/restaurants/${state.restaurant.id}/floor`);
-  if (!floor.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(floor) }));
+  if (!floor.ok) return viewMount('floor', el('div', { class: 'empty', text: errorMessage(floor) }));
   const { zones, tables } = floor.data;
 
-  mount(app, 
+  viewMount('floor', 
     el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
       el('h1', { text: 'Plan de salle' }),
       el('div', { class: 'row' }, [
@@ -600,10 +615,10 @@ async function loadReservations() {
   const to = new Date(`${state.date}T23:59:59Z`).toISOString();
   const result = await get(
     `/api/restaurants/${state.restaurant.id}/reservations?from=${from}&to=${to}`);
-  if (!result.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(result) }));
+  if (!result.ok) return viewMount('reservations', el('div', { class: 'empty', text: errorMessage(result) }));
   const tz = state.restaurant.timezone;
 
-  mount(app, 
+  viewMount('reservations', 
     el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
       el('h1', { text: 'Réservations' }),
       el('input', { type: 'date', value: state.date, style: 'width:auto',
@@ -638,6 +653,97 @@ async function loadReservations() {
   );
 }
 
+/* --- Liste d'attente ---------------------------------------------------- */
+async function loadWaitlist() {
+  const result = await get(`/api/restaurants/${state.restaurant.id}/waitlist`);
+  if (!result.ok) return viewMount('waitlist', el('div', { class: 'empty', text: errorMessage(result) }));
+  const tz = state.restaurant.timezone;
+  const STATUS = { waiting: ['En attente', ''], offered: ['Proposition envoyée', 'warn'] };
+
+  viewMount('waitlist',
+    el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
+      el('div', {}, [
+        el('h1', { text: "Liste d'attente" }),
+        el('p', { class: 'muted small', style: 'margin:0',
+          text: "Quand une table se libère (annulation, no-show, acompte non réglé), elle est proposée automatiquement au premier client compatible." }),
+      ]),
+      el('button', { class: 'btn btn--sm btn--primary', onclick: openWaitlistForm }, ['+ Inscrire un client']),
+    ]),
+    el('div', { class: 'card' }, [
+      el('div', { class: 'card__body' }, result.data.length === 0
+        ? [el('div', { class: 'empty', text: "Personne en attente." })]
+        : [el('table', { class: 'data' }, [
+            el('thead', {}, [el('tr', {}, ['Client', 'Couverts', 'Arrivée possible', 'Statut', '']
+              .map((h) => el('th', { text: h })))]),
+            el('tbody', {}, result.data.map((w) => el('tr', {}, [
+              el('td', {}, [
+                el('strong', { text: [w.first_name, w.last_name].filter(Boolean).join(' ') || '—' }),
+                el('div', { class: 'tiny muted', text: w.phone_e164 ?? w.email ?? '' }),
+              ]),
+              el('td', { text: String(w.party_size) }),
+              el('td', { class: 'small',
+                text: `${formatTime(w.desired_from, tz)} → ${formatTime(w.desired_to, tz)}` }),
+              el('td', {}, [
+                el('span', { class: `tag ${STATUS[w.status]?.[1] ? 'tag--' + STATUS[w.status][1] : ''}`,
+                  text: STATUS[w.status]?.[0] ?? w.status }),
+                w.offer_expires_at ? el('div', { class: 'tiny muted',
+                  text: `expire à ${formatTime(w.offer_expires_at, tz)}` }) : null,
+              ]),
+              el('td', {}, [
+                w.status === 'offered' ? el('div', { class: 'row' }, [
+                  el('button', { class: 'btn btn--sm btn--primary', onclick: () => waitlistAction(w.id, 'accept', 'Réservation confirmée') }, ['Confirmer']),
+                  el('button', { class: 'btn btn--sm', onclick: () => waitlistAction(w.id, 'decline', 'Table remise en jeu') }, ['Refuser']),
+                ]) : el('button', { class: 'btn btn--sm btn--danger', onclick: async () => {
+                  if (!confirm('Retirer ce client de la liste ?')) return;
+                  const res = await del(`/api/waitlist/${w.id}`);
+                  if (!res.ok) return toast(errorMessage(res), 'danger');
+                  loadWaitlist();
+                } }, ['Retirer']),
+              ]),
+            ]))),
+          ])]),
+    ]),
+  );
+}
+
+async function waitlistAction(entryId, action, message) {
+  const result = await post(`/api/waitlist/${entryId}/${action}`);
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+  toast(message, 'ok');
+  loadWaitlist();
+}
+
+function openWaitlistForm() {
+  openDrawer("Inscrire sur la liste d'attente", el('form', {
+    onsubmit: async (event) => {
+      event.preventDefault();
+      const form = new FormData(event.target);
+      const result = await post(`/api/restaurants/${state.restaurant.id}/waitlist`, {
+        partySize: Number(form.get('partySize')),
+        desiredFrom: new Date(form.get('from')).toISOString(),
+        desiredTo: new Date(form.get('to')).toISOString(),
+        guest: { firstName: form.get('firstName'), phone: form.get('phone') || null, email: form.get('email') || null },
+      });
+      if (!result.ok) return toast(errorMessage(result), 'danger');
+      toast('Client inscrit', 'ok'); closeDrawer(); loadWaitlist();
+    },
+  }, [
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Prénom' }), el('input', { name: 'firstName', required: true })]),
+      el('div', { class: 'field' }, [el('label', { text: 'Couverts' }), el('input', { name: 'partySize', type: 'number', min: '1', value: '2', required: true })]),
+    ]),
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Téléphone' }), el('input', { name: 'phone', type: 'tel' })]),
+      el('div', { class: 'field' }, [el('label', { text: 'Email' }), el('input', { name: 'email', type: 'email' })]),
+    ]),
+    el('div', { class: 'grid grid--2' }, [
+      el('div', { class: 'field' }, [el('label', { text: 'Arrivée à partir de' }), el('input', { name: 'from', type: 'datetime-local', required: true })]),
+      el('div', { class: 'field' }, [el('label', { text: "Jusqu'à" }), el('input', { name: 'to', type: 'datetime-local', required: true })]),
+    ]),
+    el('button', { class: 'btn btn--primary btn--block', type: 'submit' }, ['Inscrire']),
+  ]));
+}
+
 async function loadGuests() {
   const render = async (query = '') => {
     const result = await get(`/api/guests?q=${encodeURIComponent(query)}`);
@@ -665,7 +771,7 @@ async function loadGuests() {
         ]));
   };
 
-  mount(app, 
+  viewMount('guests', 
     el('h1', { text: 'Clients', style: 'margin-bottom:1rem' }),
     el('div', { class: 'card' }, [
       el('div', { class: 'card__head' }, [
@@ -764,10 +870,10 @@ async function loadTeam() {
     get(`/api/restaurants/${state.restaurant.id}/staff`),
     get(`/api/restaurants/${state.restaurant.id}/shifts?from=${new Date().toISOString()}`),
   ]);
-  if (!staff.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(staff) }));
+  if (!staff.ok) return viewMount('team', el('div', { class: 'empty', text: errorMessage(staff) }));
   const ROLES = { owner: 'Propriétaire', manager: 'Manager', floor_manager: 'Responsable de salle', server: 'Serveur', kitchen: 'Cuisine' };
 
-  mount(app, 
+  viewMount('team', 
     el('div', { class: 'row row--between', style: 'margin-bottom:1rem' }, [
       el('h1', { text: 'Équipe' }),
       el('div', { class: 'row' }, [
@@ -875,10 +981,10 @@ async function loadAnalytics() {
   const from = new Date(to.getTime() - 30 * 86_400_000);
   const result = await get(`/api/restaurants/${state.restaurant.id}/analytics`
     + `?from=${from.toISOString()}&to=${to.toISOString()}`);
-  if (!result.ok) return mount(app, el('div', { class: 'empty', text: errorMessage(result) }));
+  if (!result.ok) return viewMount('analytics', el('div', { class: 'empty', text: errorMessage(result) }));
   const d = result.data;
 
-  mount(app, 
+  viewMount('analytics', 
     el('h1', { text: 'Analytics', style: 'margin-bottom:.25rem' }),
     el('p', { class: 'muted small', style: 'margin-bottom:1rem', text: '30 derniers jours' }),
     el('div', { class: 'grid grid--4', style: 'margin-bottom:1rem' }, [

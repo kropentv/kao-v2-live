@@ -8,54 +8,42 @@ livrée avec ses tests automatisés.
 
 | # | Étape | État |
 |---|---|---|
-| 1 | Architecture + schéma DB + multi-tenant | ✅ livré |
-| 2 | Authentification + rôles (RBAC) | ✅ livré |
-| 3 | Restaurant + tables + plan de salle | ✅ livré |
-| 4 | Moteur de réservation | ✅ livré |
-| 5 | CRM | ✅ livré |
-| 6 | Serveurs + attribution | ✅ livré |
-| 7 | Notifications temps réel | ✅ livré |
-| 8 | Interface client | ✅ livré |
-| 9 | IA téléphonique | schéma et traçabilité prêts, agent à brancher |
-| 10 | Intégrations POS/KDS/PSP | couche d'abstraction prête, connecteurs à écrire |
+| 1 | Architecture + schéma DB + multi-tenant | ✅ |
+| 2 | Authentification + rôles (RBAC) | ✅ |
+| 3 | Restaurant + tables + plan de salle | ✅ |
+| 4 | Moteur de réservation | ✅ |
+| 5 | CRM | ✅ |
+| 6 | Serveurs + attribution | ✅ |
+| 7 | Notifications temps réel | ✅ |
+| 8 | Interface client | ✅ |
+| 9 | IA téléphonique | à faire — le reste du produit est prêt à la recevoir |
+| 10 | Intégrations | ✅ paiement (Stripe), email (Resend, Postmark), SMS/WhatsApp (Twilio) — POS/KDS à faire |
 
-Les huit premières étapes sont terminées et testées. C'est un produit
-commercialisable : un restaurant peut l'installer, prendre des
-réservations en ligne, faire tourner son service et suivre ses clients.
+Livré en plus du périmètre MVP, parce que « tout doit marcher » : liste
+d'attente (V2 du cahier des charges), rappels, no-shows automatiques,
+remboursements selon la politique d'annulation.
 
-## Ce qui reste à brancher
+## Ce qui reste
 
-**Étape 9 — IA téléphonique.** Le schéma (`ai_calls`, transcriptions,
-issue d'appel, transfert humain) et toute la logique métier sont en
-place : l'agent vocal n'a qu'à appeler les mêmes routes que le widget.
-Il reste à choisir le fournisseur voix et à écrire l'agent.
+**IA téléphonique (étape 9).** Schéma et traçabilité en place (`ai_calls`).
+L'agent vocal appellera les mêmes routes que le widget : disponibilité,
+réservation, annulation, liste d'attente. Il reste à choisir le fournisseur
+voix et à écrire l'agent.
 
-**Étape 10 — Intégrations.** `integrations`, `external_references` et
-`webhook_deliveries` existent, avec le stockage des charges brutes. Il
-reste à écrire les connecteurs POS et PSP eux-mêmes — un par fournisseur,
-sans toucher au produit.
+**Connecteurs POS / KDS.** La couche d'intégration existe
+(`src/integrations/`, `integrations`, `external_references`,
+`webhook_deliveries`). Chaque caisse est un connecteur à écrire, sans
+toucher au produit.
 
-**Paiement réel.** Le cycle acompte / préautorisation / paiement intégral
-est modélisé et testé de bout en bout ; `confirm-payment` enregistre le
-résultat. Il reste à intercaler Stripe (ou un autre PSP) entre les deux,
-et à traiter son webhook.
+**Marketing, AI Manager, multi-sites avancé** : V3, conformément au cahier
+des charges.
 
 ## Prochaine étape recommandée
 
-Mettre le produit devant cinq restaurants avant d'écrire l'étape 9.
-
-Ce qui est livré suffit à vendre : un restaurateur peut créer son compte,
-dessiner sa salle, ouvrir ses réservations en ligne et faire son service
-le soir même. Les retours de ces cinq clients vaudront plus que six mois
-de développement supplémentaire à l'aveugle.
-
-Dans l'ordre :
-
-1. Brancher un vrai PSP sur l'acompte (2–3 jours).
-2. Envoi des emails et SMS de confirmation et de rappel (2–3 jours).
-3. Mise en production : hébergement, sauvegardes, monitoring (2–3 jours).
-4. Installer cinq restaurants, les regarder s'en servir.
-5. **Ensuite seulement** : IA téléphonique, puis intégrations POS.
+Le produit est commercialisable. La suite n'est plus du code : un nom de
+domaine, un compte Stripe, un compte Resend, un hébergeur — puis cinq
+restaurants, et les regarder s'en servir. Voir
+[`05-deploiement.md`](05-deploiement.md).
 
 ## V2 / V3
 

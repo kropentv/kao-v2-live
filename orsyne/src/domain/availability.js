@@ -131,23 +131,25 @@ export function applyBookingRules({ rules, startsAt, now = new Date(), channel =
  * Les holds expires (acompte jamais paye) sont liberes avant tout calcul.
  * Sans cela, un panier abandonne bloquerait une table jusqu'au service.
  */
-export async function releaseExpiredHolds(client, restaurantId) {
+export async function releaseExpiredHolds(client, restaurantId, now = null) {
+  // `now` explicite pour l'ordonnanceur et les tests ; sinon l'horloge
+  // de la base, qui fait foi pour tous les serveurs d'application.
   const { rowCount } = await client.query(
     `UPDATE table_occupancies
-        SET is_active = false, released_at = now()
+        SET is_active = false, released_at = COALESCE($2::timestamptz, now())
       WHERE restaurant_id = $1 AND is_active AND kind = 'hold'
-        AND expires_at IS NOT NULL AND expires_at <= now()`,
-    [restaurantId],
+        AND expires_at IS NOT NULL AND expires_at <= COALESCE($2::timestamptz, now())`,
+    [restaurantId, now],
   );
   if (rowCount > 0) {
     await client.query(
-      `UPDATE reservations SET status = 'cancelled', cancelled_at = now(),
+      `UPDATE reservations SET status = 'cancelled', cancelled_at = COALESCE($2::timestamptz, now()),
               cancelled_by = 'system', cancellation_reason = 'acompte non regle dans le delai'
         WHERE restaurant_id = $1 AND status = 'pending_payment'
           AND NOT EXISTS (
             SELECT 1 FROM table_occupancies o
              WHERE o.reservation_id = reservations.id AND o.is_active)`,
-      [restaurantId],
+      [restaurantId, now],
     );
   }
   return rowCount;

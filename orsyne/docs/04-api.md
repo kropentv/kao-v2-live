@@ -115,3 +115,39 @@ sources, performance par serveur, nouveaux clients contre fidèles, appels IA.
 | `floor_manager` | Salle, réservations, clients, service |
 | `server` | Ses tables, ses notifications, la fiche de briefing |
 | `kitchen` | Service et commandes uniquement |
+
+## Paiements
+
+| | |
+|---|---|
+| `POST /api/public/:slug/reservations/:reference/checkout` | Ouvre le paiement, renvoie l'URL du prestataire |
+| `POST /api/webhooks/payments` | Webhook du prestataire — **seule** source de confirmation, signature vérifiée |
+| `GET /api/reservations/:id/payments` | Paiements d'une réservation, et si l'annulation est encore gratuite |
+| `POST /api/reservations/:id/charge-no-show` | Capture l'empreinte — décision humaine, jamais automatique |
+| `POST /api/reservations/:id/refund` | Relâche l'empreinte ou rembourse l'acompte (`billing:*`) |
+
+Annulation par le client : remboursement si elle intervient dans le délai
+de la politique, conservation sinon. Annulation par le restaurant :
+toujours remboursée.
+
+## Liste d'attente
+
+| | |
+|---|---|
+| `POST /api/public/:slug/waitlist` | Le client s'inscrit, avec ses heures d'arrivée possibles |
+| `POST /api/public/:slug/waitlist/:entryId/accept` · `decline` | Réponse du client à une proposition |
+| `GET`/`POST /api/restaurants/:id/waitlist` | Liste et inscription côté équipe |
+| `GET /api/restaurants/:id/waitlist/matches?startsAt=` | Qui pourrait prendre ce créneau |
+| `POST /api/restaurants/:id/waitlist/offer` | Proposer un créneau manuellement |
+| `POST /api/waitlist/:entryId/accept` · `decline`, `DELETE /api/waitlist/:entryId` | |
+
+Une table libérée (annulation, no-show, acompte non réglé) est proposée
+**automatiquement** au premier client compatible. Elle lui est tenue 20
+minutes, puis repart.
+
+## Exploitation
+
+| | |
+|---|---|
+| `GET /health` | Vivacité du processus |
+| `GET /ready` | Base disponible, fournisseurs branchés |

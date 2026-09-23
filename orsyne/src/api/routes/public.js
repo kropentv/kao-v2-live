@@ -1,10 +1,14 @@
-import { Router, readJson, sendJson, badRequest, notFound } from '../http.js';
+import { Router, readJson, sendJson, badRequest, notFound, reportSideEffect } from '../http.js';
 import { getPool, withTenant } from '../../db/pool.js';
 import { listSlots } from '../../domain/availability.js';
 import { createReservation, cancelReservation, confirmPayment } from '../../domain/reservation-engine.js';
 import { recordAllergies, upsertGuest } from '../../services/guest-profile.js';
 import { EU_ALLERGENS } from '../../services/guest-profile.js';
 import { tryAssignServer } from '../../services/assignment.js';
+import { notifyReservation } from '../../services/messaging.js';
+import { releaseOrRefund, cancellationIsFree } from '../../services/payments.js';
+import { addToWaitlist, acceptOffer, declineOffer, onTableFreed } from '../../services/waitlist.js';
+import { payments } from '../../integrations/index.js';
 
 /**
  * Widget de reservation client. Aucune authentification.
@@ -120,6 +124,17 @@ export function publicRoutes(router = new Router()) {
       return created;
     });
 
+    // Le message part APRES validation : un email de confirmation pour
+    // une reservation annulee par un rollback serait pire que rien.
+    await withTenant({ tenantId }, (client) => notifyReservation(client, {
+      reservationId: result.reservation.id,
+      template: result.reservation.status === 'pending_payment' ? 'pending_payment' : 'confirmed',
+      extra: result.deposit ? {
+        amount: new Intl.NumberFormat('fr-FR', { style: 'currency', currency: result.deposit.currency ?? 'EUR' })
+          .format(result.deposit.amountCents / 100),
+      } : {},
+    })).catch(reportSideEffect('message au client'));
+
     sendJson(ctx.res, 201, {
       reference: result.reservation.reference,
       status: result.reservation.status,
@@ -137,22 +152,95 @@ export function publicRoutes(router = new Router()) {
     const reservation = await withTenant({ tenantId: found.tenantId }, async (client) => {
       const { rows } = await client.query(
         `SELECT r.reference, r.starts_at, r.ends_at, r.party_size, r.status, r.occasion,
-                r.guest_notes, rest.name AS restaurant_name, rest.timezone, rest.phone_e164
-           FROM reservations r JOIN restaurants rest ON rest.id = r.restaurant_id
+                r.guest_notes, rest.name AS restaurant_name, rest.timezone, rest.phone_e164,
+                p.mechanism, p.amount_mode, p.amount_cents, p.currency, p.free_cancellation_hours
+           FROM reservations r
+           JOIN restaurants rest ON rest.id = r.restaurant_id
+           LEFT JOIN deposit_policies p ON p.id = r.deposit_policy_id
           WHERE r.id = $1`, [found.reservationId]);
-      return rows[0];
+      const row = rows[0];
+      if (!row) return null;
+      const { mechanism, amount_mode: mode, amount_cents: cents, currency,
+              free_cancellation_hours: freeHours, ...rest } = row;
+      return {
+        ...rest,
+        deposit: mechanism && mechanism !== 'none' ? {
+          mechanism,
+          amountCents: mode === 'per_person' ? cents * row.party_size : cents,
+          currency: currency ?? 'EUR',
+          freeCancellationHours: freeHours,
+        } : null,
+      };
     });
     sendJson(ctx.res, 200, reservation);
   }, { public: true });
 
   router.post('/api/public/:slug/reservations/:reference/cancel', async (ctx) => {
     const found = await lookupByReference(ctx.params.slug, ctx.params.reference);
-    await withTenant({ tenantId: found.tenantId }, (client) => cancelReservation(client, {
-      reservationId: found.reservationId,
-      reason: 'annulation par le client',
-      by: 'guest',
-    }));
-    sendJson(ctx.res, 200, { ok: true });
+    const outcome = await withTenant({ tenantId: found.tenantId }, async (client) => {
+      const { rows: [before] } = await client.query(
+        'SELECT starts_at, duration_minutes FROM reservations WHERE id = $1', [found.reservationId]);
+      // Delai de la politique : dans les temps, l'empreinte est relachee
+      // et l'acompte rendu ; hors delai, on garde, comme annonce au client.
+      const free = await cancellationIsFree(client, { reservationId: found.reservationId });
+      await cancelReservation(client, {
+        reservationId: found.reservationId, reason: 'annulation par le client', by: 'guest',
+      });
+      const refunds = free ? await releaseOrRefund(client, { reservationId: found.reservationId }) : [];
+      return { free, refunds, before };
+    });
+
+    await withTenant({ tenantId: found.tenantId }, async (client) => {
+      await notifyReservation(client, { reservationId: found.reservationId, template: 'cancelled' });
+      // La table liberee est proposee a la liste d'attente.
+      await onTableFreed(client, {
+        restaurantId: found.restaurantId,
+        startsAt: new Date(outcome.before.starts_at),
+        durationMinutes: outcome.before.duration_minutes,
+      });
+    }).catch(reportSideEffect("suites de l'annulation"));
+
+    sendJson(ctx.res, 200, {
+      ok: true,
+      freeCancellation: outcome.free,
+      refunds: outcome.refunds.map((r) => r.outcome),
+    });
+  }, { public: true });
+
+  // --- Liste d'attente cote client -------------------------------------
+  router.post('/api/public/:slug/waitlist', async (ctx) => {
+    const body = await readJson(ctx.req);
+    if (!body.guest?.phone && !body.guest?.email) {
+      throw badRequest('Un telephone ou un email est requis pour vous prevenir.');
+    }
+    const { restaurantId, tenantId } = await resolveRestaurant(ctx.params.slug);
+    const entry = await withTenant({ tenantId }, async (client) => {
+      const guestId = await upsertGuest(client, tenantId, { ...body.guest, source: 'widget' });
+      await recordAllergies(client, { tenantId, guestId, allergies: body.allergies, source: 'guest_declared' });
+      return addToWaitlist(client, {
+        tenantId, restaurantId, guestId,
+        partySize: Number(body.partySize),
+        desiredFrom: new Date(body.desiredFrom),
+        desiredTo: new Date(body.desiredTo),
+        zoneId: body.zoneId ?? null,
+        notes: body.notes ?? null,
+      });
+    });
+    sendJson(ctx.res, 201, { id: entry.id, status: entry.status });
+  }, { public: true });
+
+  router.post('/api/public/:slug/waitlist/:entryId/:decision', async (ctx) => {
+    if (!['accept', 'decline'].includes(ctx.params.decision)) throw notFound();
+    const { rows } = await getPool().query(
+      'SELECT * FROM orsyne_core.lookup_waitlist_entry($1, $2)',
+      [ctx.params.slug, ctx.params.entryId]).catch(() => ({ rows: [] }));
+    if (rows.length === 0) throw notFound('Proposition introuvable.');
+    const { tenant_id: tenantId } = rows[0];
+
+    const result = await withTenant({ tenantId }, (client) => ctx.params.decision === 'accept'
+      ? acceptOffer(client, { entryId: ctx.params.entryId })
+      : declineOffer(client, { entryId: ctx.params.entryId, reason: 'refusee par le client' }));
+    sendJson(ctx.res, 200, { ok: true, ...result });
   }, { public: true });
 
   /**
@@ -161,6 +249,11 @@ export function publicRoutes(router = new Router()) {
    * et transforme le maintien de table en reservation ferme.
    */
   router.post('/api/public/:slug/reservations/:reference/confirm-payment', async (ctx) => {
+    // Raccourci de demonstration : confirme un acompte SANS paiement.
+    // Il n'existe que lorsque le prestataire « console » est branche. En
+    // production, seul un webhook signe du prestataire confirme une
+    // table — sinon n'importe qui pourrait valider sa reservation gratuite.
+    if (payments().name !== 'console') throw notFound();
     const body = await readJson(ctx.req).catch(() => ({}));
     const found = await lookupByReference(ctx.params.slug, ctx.params.reference);
     const result = await withTenant({ tenantId: found.tenantId }, async (client) => {

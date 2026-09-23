@@ -21,6 +21,13 @@ import { staffRoutes } from './routes/staff.js';
 import { publicRoutes } from './routes/public.js';
 import { realtimeRoutes } from './routes/realtime.js';
 import { analyticsRoutes } from './routes/analytics.js';
+import { paymentRoutes } from './routes/payments.js';
+import { waitlistRoutes } from './routes/waitlist.js';
+import { securityHeaders, limiter, limitFor, clientIp } from './security.js';
+import { config } from '../config.js';
+import { getPool } from '../db/pool.js';
+import { integrationStatus } from '../integrations/index.js';
+import { scheduler } from '../services/scheduler.js';
 
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'public');
 
@@ -45,6 +52,8 @@ export function buildRouter() {
   staffRoutes(router);
   realtimeRoutes(router);
   analyticsRoutes(router);
+  paymentRoutes(router);
+  waitlistRoutes(router);
   return router;
 }
 
@@ -53,8 +62,31 @@ export function createApp({ router = buildRouter() } = {}) {
     const url = new URL(req.url, `http://${req.headers.host ?? 'localhost'}`);
 
     try {
+      securityHeaders(res);
+
+      // Vivacite : le processus repond. Ne touche pas la base, pour qu'un
+      // orchestrateur ne tue pas le conteneur pendant une coupure DB.
       if (url.pathname === '/health') {
         return sendJson(res, 200, { status: 'ok', service: 'orsyne' });
+      }
+      // Disponibilite : la base repond et les branchements sont connus.
+      if (url.pathname === '/ready') {
+        try {
+          await getPool().query('SELECT 1');
+          return sendJson(res, 200, { status: 'ready', integrations: integrationStatus() });
+        } catch {
+          return sendJson(res, 503, { status: 'database_unavailable' });
+        }
+      }
+
+      const quota = limitFor(req.method, url.pathname);
+      if (quota) {
+        const verdict = limiter.take(`${quota.bucket}:${clientIp(req)}`, quota.limit);
+        if (!verdict.allowed) {
+          return sendJson(res, 429, {
+            error: { code: 'rate_limited', message: 'Trop de requetes. Reessayez dans un instant.' },
+          }, { 'retry-after': String(verdict.retryAfterSeconds) });
+        }
       }
 
       const matched = router.match(req.method, url.pathname);
@@ -103,8 +135,8 @@ async function buildContext({ req, res, url, params, route }) {
   return {
     req, res, params, url,
     query: url.searchParams,
-    ip: (req.headers['x-forwarded-for']?.split(',')[0] ?? req.socket.remoteAddress ?? '').trim() || null,
-    secure: req.headers['x-forwarded-proto'] === 'https',
+    ip: clientIp(req),
+    secure: config.forceSecureCookies || (config.trustProxy && req.headers['x-forwarded-proto'] === 'https'),
     tenantId,
     sessionId: session?.sessionId ?? null,
     user: session?.user ?? null,
@@ -193,6 +225,7 @@ async function serveStatic(pathname, res) {
     if (!info?.isFile()) throw notFound();
   }
 
+  if (extname(filePath) === '.html') securityHeaders(res, { html: true });
   res.writeHead(200, {
     'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
     'content-length': info.size,
@@ -201,16 +234,23 @@ async function serveStatic(pathname, res) {
   createReadStream(filePath).pipe(res);
 }
 
-export function startServer({ port = Number(process.env.PORT ?? 3000), withWorker = true } = {}) {
+export function startServer({ port = config.port, withWorker = true, withScheduler = false } = {}) {
   const server = http.createServer(createApp());
+  // Une requete lente ne doit pas monopoliser une connexion indefiniment ;
+  // les flux temps reel, eux, gardent leur connexion ouverte.
+  server.headersTimeout = 20_000;
+  server.requestTimeout = 30_000;
   if (withWorker) outboxWorker.start();
+  if (withScheduler) scheduler.start();
   return new Promise((resolve) => {
     server.listen(port, () => resolve({
       server,
       port: server.address().port,
       async close() {
         outboxWorker.stop();
+        scheduler.stop();
         hub.close();
+        server.closeAllConnections?.();
         await new Promise((done) => server.close(done));
       },
     }));
@@ -218,7 +258,9 @@ export function startServer({ port = Number(process.env.PORT ?? 3000), withWorke
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { port } = await startServer();
+  // Point d'entree complet (migrations, controles, arret propre) :
+  // src/main.js. Ce raccourci reste pour le developpement.
+  const { port } = await startServer({ withScheduler: true });
   console.log(`ORSYNE — Tout s'accorde.`);
   console.log(`API et interfaces sur http://localhost:${port}`);
 }

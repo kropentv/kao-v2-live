@@ -82,6 +82,11 @@
 
 * { box-sizing: border-box; }
 
+/* L'attribut `hidden` doit TOUJOURS cacher. La regle par defaut du
+   navigateur est faible : un simple `.nav { display: flex }` l'ecrase, et
+   les onglets s'affichaient sur l'ecran de connexion. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;

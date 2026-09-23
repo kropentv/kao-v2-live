@@ -41,8 +41,12 @@ reset_test() {
 
 run_tests() {
   reset_test
+  # Tous les tests partagent la meme IP et creent des dizaines de comptes :
+  # on releve les quotas ici, la limite elle-meme a son propre test.
   ORSYNE_ADMIN_DATABASE_URL="postgres://orsyne@127.0.0.1:$PGPORT/orsyne_test" \
   ORSYNE_DATABASE_URL="postgres://orsyne_app@127.0.0.1:$PGPORT/orsyne_test" \
+  ORSYNE_RATE_LOGIN=100000 ORSYNE_RATE_BOOKING=100000 ORSYNE_RATE_API=1000000 \
+  ORSYNE_JOBS_ENABLED=false \
   node --test "test/**/*.test.js"
 }
 

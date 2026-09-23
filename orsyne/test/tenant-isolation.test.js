@@ -152,8 +152,11 @@ test('toute table metier porte tenant_id et une politique RLS', async () => {
      WHERE n.nspname = 'public' AND c.relkind = 'r'
      ORDER BY c.relname`));
 
+  // Tables d'exploitation : aucune donnee client, donc pas de tenant_id.
+  const operational = new Set(['schema_migrations', 'job_runs']);
+
   const offenders = rows.filter((r) => {
-    if (r.relname === 'schema_migrations') return false;
+    if (operational.has(r.relname)) return false;
     if (r.relname === 'tenants') return !r.relrowsecurity;
     if (!r.has_tenant_id) return true;
     return !r.relrowsecurity || !r.relforcerowsecurity;

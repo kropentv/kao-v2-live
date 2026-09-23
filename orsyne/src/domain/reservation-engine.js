@@ -88,6 +88,41 @@ export async function resolveDepositPolicy(client, { restaurantId, startsAt, par
 }
 
 /**
+ * Serialise la competition sur des tables precises.
+ *
+ * POURQUOI : une contrainte d'exclusion PostgreSQL se verifie APRES
+ * l'insertion dans l'index. Deux transactions qui visent la meme table au
+ * meme instant inserent chacune leur ligne, voient chacune celle de
+ * l'autre, et s'attendent mutuellement : interblocage (40P01). L'invariant
+ * tient — jamais deux clients sur une table — mais la victime perd sa
+ * transaction, et si les autres ont deja renonce, la table reste vide :
+ * un client recoit une erreur alors qu'il restait de la place. Mesure sur
+ * 40 manches de 12 demandes concurrentes : 27 interblocages, 2 manches
+ * incompletes.
+ *
+ * COMMENT : un verrou consultatif par table, pris AVANT l'insertion. Le
+ * premier arrive l'obtient et le garde jusqu'a son commit ; les suivants
+ * attendent, puis constatent proprement le conflit (23P01) et passent au
+ * candidat suivant. Le verrou est relache au ROLLBACK TO SAVEPOINT d'une
+ * tentative perdante (verifie) : une transaction n'en garde jamais un
+ * qu'elle n'a pas gagne. Les tables sont verrouillees dans un ordre fixe,
+ * ce qui exclut tout cycle d'attente pour les combinaisons.
+ *
+ * La contrainte d'exclusion reste la garantie : ce verrou n'est qu'une
+ * file d'attente devant elle.
+ */
+const TABLE_LOCK_NAMESPACE = 7_310_225;
+
+async function lockTables(client, tableIds) {
+  for (const tableId of [...new Set(tableIds)].sort()) {
+    await client.query(
+      'SELECT pg_advisory_xact_lock($1, hashtext($2))',
+      [TABLE_LOCK_NAMESPACE, tableId],
+    );
+  }
+}
+
+/**
  * Cree une reservation et lui attribue une ou plusieurs tables.
  *
  * GARANTIE D'UNICITE
@@ -239,6 +274,7 @@ export async function createReservation(client, input) {
   for (const allocation of allocations) {
     await client.query('SAVEPOINT allocate');
     try {
+      await lockTables(client, allocation.tableIds);
       for (const tableId of allocation.tableIds) {
         await client.query(
           `INSERT INTO table_occupancies
@@ -453,6 +489,10 @@ export async function seatReservation(client, { reservationId, actorUserId = nul
   // conserve l'intervalle initial : on ne prend pas la place d'un tiers.
   await client.query('SAVEPOINT extend_occupancy');
   try {
+    const { rows: held } = await client.query(
+      'SELECT table_id FROM table_occupancies WHERE reservation_id = $1 AND is_active',
+      [reservationId]);
+    await lockTables(client, held.map((r) => r.table_id));
     await client.query(
       `UPDATE table_occupancies
           SET occupied_during = tstzrange($2, upper(occupied_during), '[)')
@@ -575,6 +615,7 @@ export async function moveReservation(client, input) {
   );
 
   try {
+    await lockTables(client, targetTableIds);
     for (const tableId of targetTableIds) {
       await client.query(
         `INSERT INTO table_occupancies

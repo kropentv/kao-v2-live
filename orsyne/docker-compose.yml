@@ -1,0 +1,48 @@
+# ORSYNE en une commande :  docker compose up
+#
+# Base PostgreSQL + application. Le compte `orsyne` possede le schema et
+# lance les migrations ; l'application tourne ensuite avec `orsyne_app`,
+# un role qui ne peut pas contourner l'isolation entre restaurants.
+#
+# Par defaut : paiements, emails et SMS en mode demonstration (rien ne
+# part, rien n'est debite). Pour la production, renseignez .env — voir
+# .env.example.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orsyne
+      POSTGRES_PASSWORD: ${ORSYNE_DB_ADMIN_PASSWORD:-orsyne-admin-local}
+      POSTGRES_DB: orsyne
+    volumes:
+      - orsyne-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orsyne -d orsyne"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-development}
+      ORSYNE_PUBLIC_URL: ${ORSYNE_PUBLIC_URL:-http://localhost:3000}
+      ORSYNE_ADMIN_DATABASE_URL: postgres://orsyne:${ORSYNE_DB_ADMIN_PASSWORD:-orsyne-admin-local}@db:5432/orsyne
+      ORSYNE_DATABASE_URL: postgres://orsyne_app:${ORSYNE_APP_DB_PASSWORD:-orsyne-app-local}@db:5432/orsyne
+      ORSYNE_APP_DB_PASSWORD: ${ORSYNE_APP_DB_PASSWORD:-orsyne-app-local}
+      ORSYNE_SEED_DEMO: ${ORSYNE_SEED_DEMO:-true}
+
+volumes:
+  orsyne-data:

@@ -112,7 +112,42 @@ async function boot() {
   if (!result.ok) return renderNotFound();
   state.venue = result.data;
   state.date = todayIso(result.data.restaurant.timezone);
+
+  // Arrivee depuis un email (gestion) ou un retour de paiement : on
+  // ouvre directement la reservation concernee.
+  const params = new URLSearchParams(location.search);
+  const reference = params.get('ref');
+  if (reference) {
+    const outcome = params.get('paiement');
+    const loaded = await openBooking(reference);
+    if (loaded && outcome === 'ok') {
+      toast(state.booking.status === 'confirmed'
+        ? 'Paiement reçu, votre table est confirmée.'
+        : 'Paiement en cours de validation — la confirmation arrive dans quelques secondes.', 'ok');
+      // Le webhook peut arriver juste apres la redirection : on relit.
+      if (state.booking.status !== 'confirmed') setTimeout(() => openBooking(reference), 3000);
+    } else if (loaded && outcome === 'annule') {
+      toast('Paiement annulé. Votre table reste maintenue quelques minutes.', 'danger');
+    }
+    history.replaceState(null, '', location.pathname);
+    if (loaded) return;
+  }
   renderSearch();
+}
+
+async function openBooking(reference) {
+  const found = await get(
+    `/api/public/${encodeURIComponent(slug)}/reservations/${encodeURIComponent(reference)}`);
+  if (!found.ok) { toast('Réservation introuvable.', 'danger'); return false; }
+  state.booking = {
+    reference: found.data.reference,
+    status: found.data.status,
+    startsAt: found.data.starts_at,
+    partySize: found.data.party_size,
+    deposit: found.data.deposit,
+  };
+  renderConfirmation();
+  return true;
 }
 
 function renderMissingSlug() {
@@ -229,8 +264,10 @@ async function loadSlots() {
   const open = slots.filter((s) => s.available);
   if (open.length === 0) {
     mount(host, el('div', { class: 'empty' }, [
-      el('p', { text: 'Aucune table disponible ce jour-là pour cette taille de groupe.' }),
-      el('p', { class: 'small', text: 'Essayez une autre date ou un autre nombre de personnes.' }),
+      el('p', { text: 'Complet ce jour-là pour cette taille de groupe.' }),
+      el('p', { class: 'small', text: "Inscrivez-vous sur la liste d'attente : si une table se libère, nous vous la proposons en priorité." }),
+      el('button', { class: 'btn btn--primary', type: 'button', onclick: renderWaitlist },
+        ["Rejoindre la liste d'attente"]),
     ]));
     return;
   }
@@ -253,6 +290,107 @@ async function loadSlots() {
       onclick: () => { state.slot = slot; renderDetails(); },
     }, [formatTime(slot.time, state.venue.restaurant.timezone)]))),
   ])));
+}
+
+/* --- Liste d'attente ---------------------------------------------------- */
+function renderWaitlist() {
+  const { restaurant } = state.venue;
+  render(
+    el('div', { class: 'card', style: 'margin-top:1.5rem' }, [
+      el('div', { class: 'card__head' }, [
+        el('button', { class: 'btn btn--sm', type: 'button', onclick: renderSearch }, ['← Retour']),
+        el('h2', { text: "Liste d'attente" }),
+      ]),
+      el('div', { class: 'card__body' }, [
+        el('p', { class: 'muted small', style: 'margin-bottom:1rem',
+          text: `${state.partySize} personne${state.partySize > 1 ? 's' : ''} · ${formatDate(`${state.date}T12:00:00Z`, restaurant.timezone)}. `
+              + 'Indiquez vos horaires possibles : si une table se libère, vous recevez une proposition à accepter.' }),
+        el('form', { onsubmit: submitWaitlist }, [
+          el('div', { class: 'grid grid--2' }, [
+            el('div', { class: 'field' }, [
+              el('label', { for: 'wFrom', text: 'À partir de' }),
+              el('input', { id: 'wFrom', name: 'from', type: 'time', value: '19:00', required: true }),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { for: 'wTo', text: "Jusqu'à" }),
+              el('input', { id: 'wTo', name: 'to', type: 'time', value: '21:30', required: true }),
+            ]),
+          ]),
+          el('div', { class: 'grid grid--2' }, [
+            el('div', { class: 'field' }, [
+              el('label', { for: 'wName', text: 'Prénom *' }),
+              el('input', { id: 'wName', name: 'firstName', required: true, autocomplete: 'given-name' }),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { for: 'wLast', text: 'Nom' }),
+              el('input', { id: 'wLast', name: 'lastName', autocomplete: 'family-name' }),
+            ]),
+          ]),
+          el('div', { class: 'grid grid--2' }, [
+            el('div', { class: 'field' }, [
+              el('label', { for: 'wPhone', text: 'Téléphone *' }),
+              el('input', { id: 'wPhone', name: 'phone', type: 'tel', required: true, autocomplete: 'tel' }),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { for: 'wEmail', text: 'Email' }),
+              el('input', { id: 'wEmail', name: 'email', type: 'email', autocomplete: 'email' }),
+            ]),
+          ]),
+          allergyField(),
+          el('button', { class: 'btn btn--primary btn--block', type: 'submit', id: 'waitlist-btn' },
+            ["M'inscrire sur la liste d'attente"]),
+        ]),
+      ]),
+    ]),
+  );
+}
+
+async function submitWaitlist(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  const tz = state.venue.restaurant.timezone;
+  const toInstant = (hhmm) => localInstant(state.date, hhmm, tz);
+  const button = document.getElementById('waitlist-btn');
+  button.disabled = true;
+
+  const result = await post(`/api/public/${encodeURIComponent(slug)}/waitlist`, {
+    partySize: state.partySize,
+    zoneId: state.zoneId,
+    desiredFrom: toInstant(form.get('from')),
+    desiredTo: toInstant(form.get('to')),
+    allergies: [...state.allergies],
+    guest: {
+      firstName: form.get('firstName'), lastName: form.get('lastName') || null,
+      phone: form.get('phone') || null, email: form.get('email') || null,
+    },
+  });
+  button.disabled = false;
+  if (!result.ok) return toast(errorMessage(result), 'danger');
+
+  render(el('div', { class: 'card', style: 'margin-top:2rem' }, [
+    el('div', { class: 'card__body center' }, [
+      el('div', { style: 'font-size:2.4rem', text: '⏳' }),
+      el('h1', { style: 'margin:.6rem 0', text: 'Vous êtes sur la liste' }),
+      el('p', { class: 'muted', text: 'Si une table se libère sur vos horaires, vous recevez un message avec un lien pour l\'accepter. La proposition reste valable 20 minutes.' }),
+    ]),
+  ]));
+}
+
+/** Heure murale du restaurant -> instant ISO, sans dependre du navigateur. */
+function localInstant(isoDate, hhmm, timeZone) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const [hh, mm] = hhmm.split(':').map(Number);
+  const guess = Date.UTC(y, m - 1, d, hh, mm);
+  const offset = (instant) => {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+      timeZone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(new Date(instant)).filter((x) => x.type !== 'literal').map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - instant;
+  };
+  let t = guess - offset(guess);
+  t = guess - offset(t);
+  return new Date(t).toISOString();
 }
 
 /* --- Étape 2 : coordonnées ------------------------------------------- */
@@ -510,20 +648,17 @@ function depositExplanation(deposit) {
 async function payDeposit() {
   const button = document.getElementById('pay-btn');
   button.disabled = true;
-  button.textContent = 'Traitement…';
-  // Le prestataire de paiement s'intercale ici : ORSYNE n'encaisse pas
-  // lui-meme, il enregistre le resultat et confirme la table.
+  button.textContent = 'Redirection vers le paiement sécurisé…';
+  // ORSYNE ne voit jamais le numéro de carte : le prestataire héberge la
+  // page de paiement, puis renvoie ici avec la référence.
   const result = await post(
-    `/api/public/${encodeURIComponent(slug)}/reservations/${state.booking.reference}/confirm-payment`,
-    { provider: 'demo' });
-  if (!result.ok) {
+    `/api/public/${encodeURIComponent(slug)}/reservations/${encodeURIComponent(state.booking.reference)}/checkout`);
+  if (!result.ok || !result.data?.url) {
     button.disabled = false;
     button.textContent = 'Réessayer';
-    return toast(errorMessage(result), 'danger');
+    return toast(errorMessage(result, 'Le paiement est indisponible pour le moment.'), 'danger');
   }
-  state.booking = { ...state.booking, status: 'confirmed' };
-  toast('Paiement enregistré, réservation confirmée.', 'ok');
-  renderConfirmation();
+  location.href = result.data.url;
 }
 
 async function cancelBooking() {

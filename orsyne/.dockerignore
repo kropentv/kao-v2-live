@@ -1,0 +1,8 @@
+node_modules
+test
+scripts
+docs
+.env
+.env.*
+!.env.example
+*.log
