@@ -1,0 +1,4 @@
+node_modules/
+dist/
+browser/*.generated.js
+check-failure.png

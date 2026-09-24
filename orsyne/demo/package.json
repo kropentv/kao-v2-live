@@ -1,0 +1,19 @@
+{
+  "name": "orsyne-demo-navigateur",
+  "private": true,
+  "type": "module",
+  "description": "ORSYNE complet dans le navigateur : vrai serveur, vraies interfaces, PostgreSQL (PGlite) local.",
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.3.7",
+    "@noble/hashes": "1.8.0",
+    "buffer": "6.0.3"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10",
+    "playwright": "^1.56.1"
+  }
+}

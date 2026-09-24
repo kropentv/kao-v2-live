@@ -28,6 +28,10 @@ Un produit complet, du widget client jusqu'à l'encaissement.
 
 ## Démarrer
 
+Sans rien installer : [la démo en ligne](https://claude.ai/artifact/Fx744E3RsFN4tTLeFYyFXW)
+fait tourner le vrai serveur et une vraie base PostgreSQL dans le
+navigateur (voir [`demo/`](demo/README.md)).
+
 ```bash
 docker compose up
 ```

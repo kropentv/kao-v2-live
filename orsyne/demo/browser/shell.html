@@ -1,0 +1,413 @@
+<title>ORSYNE en direct</title>
+<style>
+  :root {
+    --ink: #0d1220;
+    --ink-2: #1a2234;
+    --ground: #eef0f4;
+    --panel: #ffffff;
+    --line: #d9dee7;
+    --text: #131a29;
+    --soft: #5a6478;
+    --accent: #1f3a8a;
+    --accent-soft: #e6ebfb;
+    --amber: #b4761a;
+    --ok: #1c7a52;
+    --danger: #a52432;
+    --on-ink: #f3f5fa;
+    --on-ink-soft: #a9b2c6;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground: #0a0e16; --panel: #131924; --line: #263042;
+      --text: #e8ecf4; --soft: #99a3b8; --accent: #8ea6ff; --accent-soft: #1c2640;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground: #0a0e16; --panel: #131924; --line: #263042;
+    --text: #e8ecf4; --soft: #99a3b8; --accent: #8ea6ff; --accent-soft: #1c2640;
+  }
+
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--ground); color: var(--text);
+    font: 14px/1.45 var(--font); display: flex; flex-direction: column;
+  }
+
+  .bar {
+    background: var(--ink); color: var(--on-ink);
+    padding-block: .7rem; padding-inline: 16px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.2rem;
+  }
+  .brand { display: flex; align-items: baseline; gap: .7rem; }
+  .brand__name { font-weight: 800; letter-spacing: .28em; font-size: 1.05rem; }
+  .brand__line { color: var(--on-ink-soft); font-style: italic; }
+  .live {
+    margin-left: auto; display: inline-flex; align-items: center; gap: .45rem;
+    font-size: .8rem; color: var(--on-ink-soft);
+  }
+  .live__dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--amber); }
+  .live.is-ready .live__dot { background: #3ecf8e; box-shadow: 0 0 0 3px rgba(62,207,142,.18); }
+
+  .controls {
+    padding-block: .6rem; padding-inline: 16px;
+    display: flex; flex-wrap: wrap; gap: .5rem; align-items: center;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .tabs { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .tab, .tool {
+    font: inherit; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    border-radius: 999px; padding: .42rem .85rem;
+  }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  :root[data-theme="dark"] .tab[aria-selected="true"] { color: #0a0e16; }
+  .tab:focus-visible, .tool:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .tab__step { opacity: .7; margin-right: .3rem; font-variant-numeric: tabular-nums; }
+  .spacer { flex: 1; }
+  .tool { font-weight: 500; }
+  .tool--quiet { border-color: transparent; color: var(--soft); }
+
+  .guide {
+    padding-block: .55rem; padding-inline: 16px;
+    background: var(--accent-soft); border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; font-size: .85rem; color: var(--text);
+  }
+  .guide b { font-weight: 650; }
+  .guide code { font-family: var(--mono); font-size: .8rem; }
+
+  .stage { flex: 1; min-height: 0; display: grid; gap: 12px; padding: 12px 16px 16px; }
+  .stage[data-layout="single"] .pane:not(.is-active) { display: none; }
+  .stage[data-layout="split"] { grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr) minmax(0, 1fr); }
+
+  .pane {
+    min-width: 0; min-height: 620px; display: flex; flex-direction: column;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+  }
+  .pane__bar {
+    display: flex; align-items: center; gap: .5rem;
+    padding: .45rem .6rem; border-bottom: 1px solid var(--line); font-size: .8rem;
+  }
+  .pane__who { font-weight: 650; white-space: nowrap; }
+  .pane__url {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--mono); color: var(--soft); background: var(--ground);
+    border-radius: 6px; padding: .2rem .5rem;
+  }
+  .pane__btn {
+    font: inherit; cursor: pointer; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel); color: var(--text); padding: .15rem .5rem;
+  }
+  .pane iframe { flex: 1; width: 100%; border: 0; background: #fff; }
+
+  .boot {
+    position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+    background: var(--ink); color: var(--on-ink); padding-inline: 16px;
+  }
+  .boot__box { max-width: 30rem; display: grid; gap: .8rem; }
+  .boot__name { font-weight: 800; letter-spacing: .3em; font-size: 1.6rem; }
+  .boot__step { color: var(--on-ink-soft); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+  .boot__meter { height: 3px; background: var(--ink-2); border-radius: 3px; overflow: hidden; }
+  .boot__meter span { display: block; height: 100%; width: 30%; background: var(--amber); animation: slide 1.4s ease-in-out infinite; }
+  .boot__error { color: #ffb3bb; white-space: pre-wrap; font-family: var(--mono); font-size: .8rem; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+  @media (prefers-reduced-motion: reduce) { .boot__meter span { animation: none; width: 100%; } }
+
+  .notice {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 11;
+    background: var(--ink); color: var(--on-ink); padding: .6rem 1rem; border-radius: 10px;
+    max-width: calc(100% - 32px);
+  }
+
+  @media (max-width: 720px) {
+    .brand__line { display: none; }
+    .tab { padding: .38rem .7rem; }
+    .guide { display: none; }
+    .pane { min-height: 560px; }
+  }
+</style>
+
+<header class="bar">
+  <div class="brand"><span class="brand__name">ORSYNE</span><span class="brand__line">Tout s'accorde.</span></div>
+  <span class="live" id="live"><span class="live__dot"></span><span id="live-label">Démarrage…</span></span>
+</header>
+
+<div class="controls">
+  <div class="tabs" role="tablist" aria-label="Interfaces">
+    <button class="tab" role="tab" id="tab-client" data-pane="client" aria-selected="true"><span class="tab__step">1</span>Le client réserve</button>
+    <button class="tab" role="tab" id="tab-gestion" data-pane="gestion" aria-selected="false"><span class="tab__step">2</span>Le restaurant gère</button>
+    <button class="tab" role="tab" id="tab-salle" data-pane="salle" aria-selected="false"><span class="tab__step">3</span>Le serveur en salle</button>
+  </div>
+  <span class="spacer"></span>
+  <button class="tool" id="layout-toggle" type="button">Voir les trois côte à côte</button>
+  <button class="tool tool--quiet" id="reset" type="button">Repartir de zéro</button>
+</div>
+
+<div class="guide">
+  <span><b>À essayer :</b> réservez pour 8 personnes (acompte), puis regardez la réservation arriver en direct dans les deux autres écrans.</span>
+  <span><b>Comptes :</b> <code>patron@orsyne.demo</code>, <code>manager@</code>, <code>lucas@</code>, <code>sarah@</code>, <code>hugo@</code> · mot de passe <code>demo-orsyne-2026</code></span>
+</div>
+
+<main class="stage" id="stage" data-layout="single">
+  <article class="pane is-active" data-pane="client">
+    <div class="pane__bar"><span class="pane__who">Client</span><span class="pane__url"></span><button class="pane__btn" data-home type="button" title="Revenir à l'accueil de cet écran">Accueil</button></div>
+    <iframe title="Réservation en ligne (client)"></iframe>
+  </article>
+  <article class="pane" data-pane="gestion">
+    <div class="pane__bar"><span class="pane__who">Restaurant</span><span class="pane__url"></span><button class="pane__btn" data-home type="button" title="Revenir à l'accueil de cet écran">Accueil</button></div>
+    <iframe title="Tableau de bord du restaurant"></iframe>
+  </article>
+  <article class="pane" data-pane="salle">
+    <div class="pane__bar"><span class="pane__who">Serveur</span><span class="pane__url"></span><button class="pane__btn" data-home type="button" title="Revenir à l'accueil de cet écran">Accueil</button></div>
+    <iframe title="Application de salle (serveur)"></iframe>
+  </article>
+</main>
+
+<div class="boot" id="boot" role="status" aria-live="polite">
+  <div class="boot__box">
+    <div class="boot__name">ORSYNE</div>
+    <div class="boot__step" id="boot-step">Préparation…</div>
+    <div class="boot__meter" id="boot-meter"><span></span></div>
+    <div class="boot__error" id="boot-error" hidden></div>
+  </div>
+</div>
+
+<script type="application/json" id="screens">__SCREENS_JSON__</script>
+
+<script type="module">
+const SCREENS = JSON.parse(document.getElementById('screens').textContent);
+const ORIGIN = 'https://orsyne.demo';
+const CLIENT_URL = new URL('orsyne-client.js', document.baseURI).href;
+const HOME = { client: '/r/comptoir-demo', gestion: '/app', salle: '/app/salle.html' };
+const AUTO_LOGIN = { gestion: 'patron@orsyne.demo', salle: 'lucas@orsyne.demo' };
+const PASSWORD = 'demo-orsyne-2026';
+
+const panes = {};
+for (const node of document.querySelectorAll('.pane')) {
+  const id = node.dataset.pane;
+  panes[id] = {
+    node, frame: node.querySelector('iframe'), label: node.querySelector('.pane__url'),
+    url: `${ORIGIN}${HOME[id]}`, streams: new Set(),
+  };
+  node.querySelector('[data-home]').addEventListener('click', () => navigate(id, HOME[id]));
+}
+
+let backend = null;
+
+/* ---------- L'adresse virtuelle de chaque ecran ---------- */
+
+function setUrl(id, url) {
+  const pane = panes[id];
+  pane.url = new URL(url, pane.url).href;
+  pane.label.textContent = pane.url.replace(/^https:\/\//, '');
+}
+
+function adapt(html) {
+  return html
+    .replace(/<link rel="stylesheet" href="\/assets\/orsyne\.css">/, () => `<style>${SCREENS.css}</style>`)
+    .replace(/\blocation\./g, '__vloc.')
+    .replace(/\bhistory\.replaceState\(/g, '__vhistory.replaceState(');
+}
+
+function bridge(id) {
+  // Execute dans l'iframe avant les scripts de la page : le reseau, le
+  // flux temps reel et la navigation passent par le serveur local.
+  return `<script>(() => {
+  const host = parent.OrsyneHost, pane = ${JSON.stringify(id)};
+  const theme = host.theme();
+  if (theme) document.documentElement.setAttribute('data-theme', theme);
+  const here = () => new URL(host.url(pane));
+  window.__vloc = {
+    get href() { return here().href; }, set href(v) { host.navigate(pane, String(v)); },
+    get pathname() { return here().pathname; }, get search() { return here().search; },
+    get hash() { return here().hash; }, get origin() { return here().origin; },
+    get host() { return here().host; }, get hostname() { return here().hostname; },
+    get protocol() { return here().protocol; },
+    assign(v) { host.navigate(pane, String(v)); }, replace(v) { host.navigate(pane, String(v)); },
+    reload() { host.navigate(pane, here().href); }, toString() { return here().href; },
+  };
+  window.__vhistory = { replaceState(_s, _t, url) { if (url != null) host.setUrl(pane, new URL(url, here()).href); } };
+  // Le lecteur d'artefacts bloque les boites de dialogue natives.
+  window.confirm = () => true;
+  window.alert = (message) => host.notice(String(message));
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const url = new URL(typeof input === 'string' ? input : input.url, here());
+    if (url.origin !== here().origin) return nativeFetch(input, init);
+    const headers = {};
+    new Headers(init.headers || {}).forEach((value, key) => { headers[key] = value; });
+    const r = await host.request(pane, { method: init.method || 'GET', url: url.pathname + url.search, headers, body: init.body ?? null });
+    const empty = [101, 204, 205, 304].includes(r.status);
+    return new Response(empty ? null : r.body, { status: r.status, headers: { 'content-type': r.headers['content-type'] || 'text/plain' } });
+  };
+  window.EventSource = class extends EventTarget {
+    constructor(url) {
+      super();
+      this.readyState = 0; this.onopen = null; this.onmessage = null; this.onerror = null;
+      host.stream(pane, new URL(url, here()).pathname, (type, data) => this.emit(type, new MessageEvent(type, { data })))
+        .then((h) => {
+          if (this.readyState === 2) return h.close();
+          this.handle = h;
+          if (h.status === 200) { this.readyState = 1; this.emit('open', new Event('open')); }
+          else { this.readyState = 2; this.emit('error', new Event('error')); }
+        }, () => { this.readyState = 2; this.emit('error', new Event('error')); });
+    }
+    emit(type, event) { this.dispatchEvent(event); const h = this['on' + type]; if (typeof h === 'function') h.call(this, event); }
+    close() { this.readyState = 2; this.handle?.close(); }
+  };
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest && event.target.closest('a[href]');
+    if (!link || event.defaultPrevented) return;
+    const href = link.getAttribute('href');
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
+    const target = new URL(href, here());
+    event.preventDefault();
+    if (target.origin === here().origin) host.navigate(pane, target.href);
+    else window.open(target.href, '_blank', 'noopener');
+  });
+})();<\/script>`;
+}
+
+async function documentFor(id) {
+  const path = new URL(panes[id].url).pathname;
+  if (path === '/app/salle.html') return SCREENS.salle;
+  if (path === '/app' || path.startsWith('/app/')) return SCREENS.dashboard;
+  if (path === '/' || path.startsWith('/r/')) return SCREENS.widget;
+  // Toute autre page (paiement de demonstration…) est servie par le serveur.
+  const r = await backend.request(id, { method: 'GET', url: path + new URL(panes[id].url).search });
+  if (r.status === 200 && String(r.headers['content-type']).startsWith('text/html')) return adapt(r.body);
+  return `<!doctype html><meta charset="utf-8"><body style="font:15px system-ui;padding:2rem">Page introuvable (${r.status}).</body>`;
+}
+
+async function render(id) {
+  const pane = panes[id];
+  for (const s of pane.streams) s.close();
+  pane.streams.clear();
+  pane.label.textContent = pane.url.replace(/^https:\/\//, '');
+  const html = (await documentFor(id)).replaceAll('__CLIENT_URL__', CLIENT_URL);
+  pane.frame.srcdoc = html.replace(/<head>/i, () => `<head>${bridge(id)}`);
+}
+
+function navigate(id, url) {
+  setUrl(id, url);
+  render(id);
+}
+
+window.OrsyneHost = {
+  url: (id) => panes[id].url,
+  setUrl,
+  navigate: (id, url) => queueMicrotask(() => navigate(id, url)),
+  theme: () => document.documentElement.getAttribute('data-theme'),
+  request: (id, init) => backend.request(id, init),
+  async stream(id, url, onEvent) {
+    const handle = await backend.stream(id, url, onEvent);
+    panes[id].streams.add(handle);
+    return handle;
+  },
+  notice,
+};
+
+/* ---------- Coque ---------- */
+
+function notice(message) {
+  const node = document.createElement('div');
+  node.className = 'notice';
+  node.setAttribute('role', 'status');
+  node.textContent = message;
+  document.body.append(node);
+  setTimeout(() => node.remove(), 4000);
+}
+
+const stage = document.getElementById('stage');
+const toggle = document.getElementById('layout-toggle');
+
+function show(id) {
+  for (const tab of document.querySelectorAll('.tab')) tab.setAttribute('aria-selected', String(tab.dataset.pane === id));
+  for (const [key, pane] of Object.entries(panes)) pane.node.classList.toggle('is-active', key === id);
+  try { localStorage.setItem('orsyne-demo:tab', id); } catch { /* prive */ }
+}
+
+function setLayout(layout) {
+  stage.dataset.layout = layout;
+  toggle.textContent = layout === 'split' ? 'Un écran à la fois' : 'Voir les trois côte à côte';
+  try { localStorage.setItem('orsyne-demo:layout', layout); } catch { /* prive */ }
+}
+
+for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => show(tab.dataset.pane));
+toggle.addEventListener('click', () => setLayout(stage.dataset.layout === 'split' ? 'single' : 'split'));
+
+try {
+  const tab = localStorage.getItem('orsyne-demo:tab');
+  if (panes[tab]) show(tab);
+  const layout = localStorage.getItem('orsyne-demo:layout');
+  setLayout(layout ?? (matchMedia('(min-width: 1280px)').matches ? 'split' : 'single'));
+} catch {
+  setLayout(matchMedia('(min-width: 1280px)').matches ? 'split' : 'single');
+}
+
+const boot = document.getElementById('boot');
+const bootStep = document.getElementById('boot-step');
+
+function status(ready, label) {
+  document.getElementById('live').classList.toggle('is-ready', ready);
+  document.getElementById('live-label').textContent = label;
+}
+
+async function signIn() {
+  for (const [id, email] of Object.entries(AUTO_LOGIN)) {
+    const me = await backend.request(id, { method: 'GET', url: '/api/me' });
+    if (me.status === 200) continue;
+    await backend.request(id, {
+      method: 'POST', url: '/api/auth/login',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: PASSWORD }),
+    });
+  }
+}
+
+async function start() {
+  boot.hidden = false;
+  try {
+    backend ??= await import(new URL('orsyne-backend.js', document.baseURI).href);
+    const info = await backend.boot({ onProgress: (label) => { bootStep.textContent = label; } });
+    bootStep.textContent = 'Connexion des équipes…';
+    await signIn();
+    for (const id of Object.keys(panes)) render(id);
+    status(true, info.appRoleIsolated
+      ? 'Serveur ORSYNE actif dans ce navigateur · PostgreSQL · isolation par restaurant active'
+      : 'Serveur ORSYNE actif dans ce navigateur');
+    boot.hidden = true;
+  } catch (error) {
+    console.error(error);
+    document.getElementById('boot-meter').hidden = true;
+    bootStep.textContent = "Le serveur local n'a pas pu démarrer dans ce navigateur.";
+    const box = document.getElementById('boot-error');
+    box.hidden = false;
+    box.textContent = `${error?.message ?? error}\n\nEssayez un navigateur récent (Chrome, Edge, Safari 17+, Firefox) sur ordinateur.`;
+    status(false, 'Arrêté');
+  }
+}
+
+document.getElementById('reset').addEventListener('click', async () => {
+  const button = document.getElementById('reset');
+  button.disabled = true;
+  status(false, 'Réinitialisation…');
+  for (const pane of Object.values(panes)) {
+    for (const s of pane.streams) s.close();
+    pane.streams.clear();
+    pane.frame.srcdoc = '';
+  }
+  await backend.wipe();
+  backend.clearSessions();
+  for (const [id, pane] of Object.entries(panes)) pane.url = `${ORIGIN}${HOME[id]}`;
+  await start();
+  button.disabled = false;
+  notice('Restaurant de démonstration remis à neuf.');
+});
+
+start();
+</script>
