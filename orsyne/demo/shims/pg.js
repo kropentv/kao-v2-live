@@ -3,8 +3,8 @@
  *
  * Le code d'ORSYNE reste identique : il demande un pool, ouvre des
  * transactions, pose le contexte tenant. Ici, une seule session Postgres
- * sert tout le monde ; un verrou garantit qu'une transaction a la fois
- * la tient, exactement comme une connexion empruntee au pool.
+ * sert tout le monde ; un verrou garantit qu'une seule transaction a la
+ * fois la tient.
  *
  * Deux identites, comme en production :
  *   - `new pg.Client()` (migrations, jeu de demonstration) = proprietaire ;
@@ -68,31 +68,78 @@ async function run(text, params) {
   }
 }
 
+const BEGIN = /^\s*(BEGIN|START\s+TRANSACTION)\b/i;
+const END = /^\s*(COMMIT|END|ROLLBACK)\s*;?\s*$/i;
+
+/**
+ * Une « connexion » du pool.
+ *
+ * Toutes partagent la meme session Postgres : on ne peut donc pas laisser
+ * deux transactions s'entrelacer. Le verrou est tenu de BEGIN a COMMIT ou
+ * ROLLBACK, et le temps d'une seule requete hors transaction.
+ *
+ * Tenir le verrou pendant toute la duree d'emprunt (premiere version)
+ * bloquait la base des qu'un code gardait une connexion ouverte en en
+ * empruntant une autre — exactement ce que fait le planificateur, qui
+ * garde son verrou consultatif sur une connexion pendant tout son tour.
+ */
 class PooledClient {
-  constructor(role, release) {
+  constructor(role) {
     this.role = role;
-    this.releaseLock = release;
+    this.releaseLock = null;
     this.released = false;
   }
+
   async query(text, params) {
     if (this.released) throw new Error('Connexion deja rendue au pool.');
-    await useRole(this.role);
-    return run(text, params);
+    const sql = typeof text === 'object' ? text.text : text;
+
+    if (this.releaseLock) {
+      // En transaction : la session est deja a nous.
+      try {
+        return await run(text, params);
+      } finally {
+        if (END.test(sql)) this.unlock();
+      }
+    }
+
+    const release = await session.acquire();
+    try {
+      await useRole(this.role);
+      const result = await run(text, params);
+      if (BEGIN.test(sql)) {
+        this.releaseLock = release;
+        return result;
+      }
+      release();
+      return result;
+    } catch (error) {
+      release();
+      throw error;
+    }
   }
+
+  unlock() {
+    const release = this.releaseLock;
+    this.releaseLock = null;
+    release?.();
+  }
+
   release() {
     if (this.released) return;
     this.released = true;
-    this.releaseLock();
+    if (this.releaseLock) {
+      // Transaction abandonnee sans COMMIT ni ROLLBACK : on l'annule.
+      run('ROLLBACK').catch(() => {}).finally(() => this.unlock());
+    }
   }
+
   on() { return this; }
 }
 
 class Pool {
   constructor() { this.ended = false; }
-  async connect() {
-    const release = await session.acquire();
-    return new PooledClient('app', release);
-  }
+  async connect() { return new PooledClient('app'); }
   async query(text, params) {
     const client = await this.connect();
     try { return await client.query(text, params); } finally { client.release(); }
@@ -102,13 +149,10 @@ class Pool {
 }
 
 class Client {
-  constructor() { this.inner = null; }
-  async connect() {
-    const release = await session.acquire();
-    this.inner = new PooledClient('admin', release);
-  }
+  constructor() { this.inner = new PooledClient('admin'); }
+  async connect() {}
   query(text, params) { return this.inner.query(text, params); }
-  async end() { this.inner?.release(); }
+  async end() { this.inner.release(); }
   on() { return this; }
 }
 

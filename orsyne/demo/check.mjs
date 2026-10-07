@@ -4,7 +4,8 @@
  *   2. un client reserve pour 8 via le vrai widget, paie l'acompte sur
  *      la page de paiement de demonstration, et la table est confirmee ;
  *   3. la reservation apparait en direct dans le tableau de bord ;
- *   4. douze demandes simultanees sur la meme table : une seule passe.
+ *   4. douze demandes simultanees sur la meme table : une seule passe ;
+ *   5. planificateur et requetes en parallele : rien ne se fige.
  *
  * Usage : npm run build && npm run check
  */
@@ -93,6 +94,27 @@ try {
   assert.equal(won, 1, `une seule reservation attendue sur B1, obtenu ${won} (${race.statuses.join(',')}) ${race.errors.join(' | ')}`);
   assert.ok(race.statuses.every((s) => s < 300 || s === 409), race.statuses.join(','));
   step(`12 demandes simultanees sur la table B1 a ${race.startsAt} : 1 acceptee, 11 refusees (409)`);
+
+  // 5. Les taches de fond (planificateur, outbox) ne bloquent jamais les requetes.
+  //    Le planificateur garde une connexion pendant tout son tour : la premiere
+  //    version du pont PGlite se figeait des le premier tour (30 s apres l'ouverture).
+  const jobs = await page.evaluate(async () => {
+    const backend = await import(new URL('orsyne-backend.js', document.baseURI).href);
+    const timeout = (label) => new Promise((resolve) => setTimeout(() => resolve(`BLOQUE: ${label}`), 10_000));
+    const during = Promise.race([
+      Promise.all([backend.runJobsNow(), window.OrsyneHost.request('gestion', { method: 'GET', url: '/api/me' })])
+        .then(([, me]) => `ok ${me.status}`),
+      timeout('taches de fond + requete'),
+    ]);
+    const after = await during;
+    const again = await Promise.race([
+      window.OrsyneHost.request('client', { method: 'GET', url: '/api/public/comptoir-demo' }).then((r) => `ok ${r.status}`),
+      timeout('requete apres les taches'),
+    ]);
+    return [after, again];
+  });
+  assert.deepEqual(jobs, ['ok 200', 'ok 200'], jobs.join(' / '));
+  step('planificateur et outbox tournent pendant les requetes, sans blocage');
 
   const unexpected = problems.filter((p) => !/favicon/.test(p));
   assert.deepEqual(unexpected, [], 'erreurs dans la console');

@@ -301,3 +301,8 @@ export async function stream(jarId, url, onEvent) {
     close() { res.emit('close'); },
   };
 }
+
+/** Fait tourner tout de suite les taches de fond (rappels, no-shows, outbox) : sert aux verifications. */
+export function runJobsNow() {
+  return Promise.all([scheduler.tick(), outboxWorker.tick()]);
+}

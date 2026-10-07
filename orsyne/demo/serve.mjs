@@ -21,6 +21,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "connect-src 'self'",
   "img-src 'self' data: blob:",
+  "font-src 'self' data: https://fonts.gstatic.com",
   "frame-src 'self' blob:",
 ].join('; ');
 
